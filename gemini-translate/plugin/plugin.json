@@ -1,7 +1,7 @@
 {
   "metadata": {
-    "name": "Gemini Translate",
-    "author": "vBook",
+    "name": "Gemini Mod",
+    "author": "tuthanika",
     "version": 11,
     "source": "https://ai.google.dev",
     "description": "Dịch nội dung bằng Google Gemini API",
