@@ -1,88 +1,94 @@
 load('prompts.js');
 
 function execute() {
-    var config = {
-        api_key: {
+    var config = {};
+    config[translationConfigKey("api_key")] = {
             title: "Gemini API keys",
             subtitle: "Danh sách API key; tự chuyển key khi hết quota",
             default: "",
             mode: "list",
             format: "text"
-        },
-        temperature: {
+        };
+    config[translationConfigKey("temperature")] = {
             title: "Temperature",
             subtitle: "0.0 - 2.0; giá trị thấp giúp bản dịch ổn định",
             default: "0.2",
             mode: "input",
             format: "number"
-        },
-        max_output_tokens: {
+        };
+    config[translationConfigKey("max_output_tokens")] = {
             title: "Số token đầu ra tối đa",
             default: "16384",
             mode: "input",
             format: "number"
-        },
-        enable_safety_filter: {
+        };
+    config[translationConfigKey("enable_safety_filter")] = {
             title: "Bật bộ lọc an toàn Gemini",
             subtitle: "Mặc định tắt; khi tắt sẽ gửi BLOCK_NONE cho harassment, hate speech, sexually explicit và dangerous content",
             default: "false",
             mode: "toggle"
-        },
-        retry_untranslated_chinese: {
+        };
+    config[translationConfigKey("retry_untranslated_chinese")] = {
             title: "Tự sửa phần tiếng Trung còn sót",
             subtitle: "Gom các cụm tiếng Trung còn sót và gọi Gemini đúng 1 lần; nếu lần sửa lỗi thì giữ nguyên bản dịch ban đầu",
             default: "true",
             mode: "toggle"
-        },
-        translate_table_of_content: {
+        };
+    config[translationConfigKey("translate_table_of_content")] = {
             title: "Dùng Gemini dịch mục lục",
             subtitle: "Tắt: dùng QT trước, sau đó fallback sang Baidu",
             default: "false",
             mode: "toggle"
-        },
-        translate_detail: {
+        };
+    config[translationConfigKey("translate_detail")] = {
             title: "Dùng Gemini dịch chi tiết",
             subtitle: "Tắt: dùng QT trước, sau đó fallback sang Baidu",
             default: "false",
             mode: "toggle"
-        },
-        translate_discovery: {
+        };
+    config[translationConfigKey("translate_discovery")] = {
             title: "Dùng Gemini dịch khám phá",
             subtitle: "Tắt: dùng QT trước, sau đó fallback sang Baidu",
             default: "false",
             mode: "toggle"
-        },
-        use_qt_fallback: {
+        };
+    config[translationConfigKey("use_qt_fallback")] = {
             title: "Ưu tiên QT khi dịch bổ sung",
             subtitle: "Chỉ áp dụng cho nội dung tiếng Trung sang tiếng Việt; nếu tắt hoặc QT không dùng được sẽ chuyển sang Baidu",
             default: "true",
             mode: "toggle"
-        },
-        translation_prompts: {
+        };
+    config[translationConfigKey("system_prompt")] = {
+            title: "Prompt hệ thống dịch thuật",
+            subtitle: "Có thể sửa toàn bộ hướng dẫn; giữ các biến {source_language}, {target_language}, {style_prompt}, {source_prompt}, {custom_instruction} và {memory_prompt} nếu muốn dùng dữ liệu tương ứng",
+            default: translationDefaultSystemPrompt(),
+            mode: "input",
+            format: "text"
+        };
+    config.translation_prompts = {
             title: "Prompt phong cách dịch truyện",
             subtitle: "Dùng chung cho mọi truyện; khi thêm prompt mới hãy để trống bookId, nhập key là ID style và value là nội dung prompt",
             mode: "database"
-        },
-        use_translation_memory: {
+        };
+    config[translationConfigKey("use_translation_memory")] = {
             title: "Sử dụng bộ nhớ dịch",
             subtitle: "Áp dụng tên riêng, địa danh, thuật ngữ và quan hệ đã lưu cho truyện hiện tại",
             default: "true",
             mode: "toggle"
-        },
-        auto_translation_memory: {
+        };
+    config[translationConfigKey("auto_translation_memory")] = {
             title: "Tự động học bộ nhớ dịch",
             subtitle: "Tự lưu thực thể mới khi dịch chương; chỉ hoạt động khi Sử dụng bộ nhớ dịch đang bật",
             default: "true",
             mode: "toggle"
-        },
-        memory_analysis_chapters: {
+        };
+    config[translationConfigKey("memory_analysis_chapters")] = {
             title: "Số chương phân tích",
             subtitle: "Action sẽ đọc từ chương đang đọc và các chương kế sau, tối đa theo số lượng này",
             default: "5",
             mode: "input",
             format: "number"
-        }
-    };
+        };
 
     initializeTranslationPrompts();
 
@@ -92,7 +98,7 @@ function execute() {
     } catch (e) {}
 
     if (bookInfo && bookInfo.id) {
-        var bookPromptKey = translationBookPromptConfigKey(String(bookInfo.id));
+        var bookPromptKey = translationConfigKey(translationBookPromptConfigKey(String(bookInfo.id)));
         config[bookPromptKey] = {
             title: "Yêu cầu dịch riêng cho truyện",
             subtitle: "Chỉ áp dụng cho truyện hiện tại, ví dụ: giữ cách xưng hô theo phong cách kiếm hiệp",
@@ -112,12 +118,33 @@ function execute() {
 
 function initializeTranslationPrompts() {
     try {
-        if (localDatabase.count(TRANSLATION_PROMPT_SCOPE, TRANSLATION_PROMPT_TABLE) > 0) return;
         var defaults = translationDefaultPrompts();
         var rows = [];
-        for (var style in defaults) {
-            if (!defaults.hasOwnProperty(style)) continue;
-            rows.push({ key: style, value: defaults[style] });
+        var total = localDatabase.count(TRANSLATION_PROMPT_SCOPE, TRANSLATION_PROMPT_TABLE);
+        if (total === 0) {
+            for (var style in defaults) {
+                if (!defaults.hasOwnProperty(style)) continue;
+                rows.push({ key: style, value: defaults[style] });
+            }
+        } else {
+            var storedPrompts = {};
+            var storedRows = localDatabase.list(
+                TRANSLATION_PROMPT_SCOPE,
+                TRANSLATION_PROMPT_TABLE,
+                0,
+                total
+            );
+            for (var rowIndex = 0; storedRows && rowIndex < storedRows.length; rowIndex++) {
+                storedPrompts[String(storedRows[rowIndex].key || "")] = String(storedRows[rowIndex].value || "");
+            }
+            var definitions = translationDefaultStyleDefinitions();
+            for (var index = 0; index < definitions.length; index++) {
+                var definition = definitions[index];
+                var stored = storedPrompts[definition.id];
+                if (stored === translationLegacyPrompt(definition.rule)) {
+                    rows.push({ key: definition.id, value: definition.rule });
+                }
+            }
         }
         if (rows.length > 0) localDatabase.upsertAll(TRANSLATION_PROMPT_SCOPE, TRANSLATION_PROMPT_TABLE, rows);
     } catch (e) {}

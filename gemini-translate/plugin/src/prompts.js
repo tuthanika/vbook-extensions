@@ -1,5 +1,25 @@
 var TRANSLATION_PROMPT_TABLE = "translation_prompts";
 var TRANSLATION_PROMPT_SCOPE = "";
+var TRANSLATION_CONFIG_GENERATION_KEY = "translation_config_generation";
+
+function translationConfigGeneration() {
+    var value = 0;
+    try {
+        value = parseInt(localStorage.getItem(TRANSLATION_CONFIG_GENERATION_KEY), 10);
+    } catch (e) {}
+    return isNaN(value) || value < 0 ? 0 : value;
+}
+
+function translationConfigKey(key) {
+    var generation = translationConfigGeneration();
+    return generation > 0 ? "g" + generation + "_" + key : key;
+}
+
+function translationNextConfigGeneration() {
+    var generation = translationConfigGeneration() + 1;
+    localStorage.setItem(TRANSLATION_CONFIG_GENERATION_KEY, String(generation));
+    return generation;
+}
 
 function translationNormalizeStyle(style) {
     var selected = String(style || "").trim();
@@ -26,6 +46,26 @@ function translationDefaultPrompts() {
         prompts[definitions[i].id] = translationBuildPrompt(definitions[i].rule);
     }
     return prompts;
+}
+
+function translationDefaultSystemPrompt() {
+    return "Bạn là biên tập viên kiêm dịch giả văn học chuyên nghiệp. " +
+        "Hãy dịch toàn bộ văn bản người dùng từ {source_language} sang {target_language}, tạo bản dịch hoàn chỉnh, tự nhiên, phù hợp để đọc lâu và nghe TTS.\n" +
+        "Thứ tự ưu tiên: (1) giữ nguyên nội dung, diễn biến và logic của nguyên tác; " +
+        "(2) tuân thủ bộ nhớ dịch đã cung cấp; " +
+        "(3) thực hiện yêu cầu riêng của truyện; " +
+        "(4) giữ đúng nhân vật, giới tính, quan hệ, xưng hô hai chiều, tên riêng và thuật ngữ; " +
+        "(5) áp dụng phong cách thể loại và yêu cầu theo loại nội dung.\n" +
+        "Không dịch từng chữ khi câu trở nên cứng hoặc tối nghĩa. Có thể đổi cấu trúc câu để bản dịch tự nhiên nhưng không thêm, bớt, giải thích hoặc suy diễn. " +
+        "Không tự đoán giới tính, tuổi, quan hệ hoặc vai vế; khi chưa rõ, dùng tên, danh hiệu hoặc cách diễn đạt trung tính. " +
+        "Trong lời thoại, xác định đúng người nói, người nghe và từng vai xưng hô. Một tên hoặc thuật ngữ đã có cách dịch phải được giữ nhất quán. " +
+        "Dịch đầy đủ mọi đoạn, kể cả câu ngắn và tên gọi; giữ nguyên số liệu, URL, placeholder cùng cấu trúc HTML/Markdown.\n\n" +
+        "{style_prompt}\n\n" +
+        "{source_prompt}\n\n" +
+        "{custom_instruction}\n\n" +
+        "{memory_prompt}\n\n" +
+        "Trước khi hoàn tất, hãy tự kiểm tra im lặng: còn phần nào chưa dịch ngoài nội dung được yêu cầu giữ nguyên không; tên, giới tính, quan hệ, xưng hô và thuật ngữ có nhất quán không; có vô tình thêm hoặc bỏ thông tin không.\n" +
+        "Chỉ trả về bản dịch, không giải thích, không thêm nhãn, dấu ngoặc kép hoặc hàng rào Markdown.";
 }
 
 function translationDefaultStyleDefinitions() {
@@ -192,6 +232,10 @@ function translationDefaultPrompt(style) {
 }
 
 function translationBuildPrompt(styleRule) {
+    return styleRule;
+}
+
+function translationLegacyPrompt(styleRule) {
     return "Bạn là biên tập viên kiêm dịch giả truyện chuyên nghiệp. " +
         "Hãy tạo bản dịch tiếng Việt hoàn chỉnh, tự nhiên, phù hợp để đọc lâu và nghe TTS.\n" +
         "Thứ tự ưu tiên: (1) giữ nguyên nội dung, diễn biến và logic; " +

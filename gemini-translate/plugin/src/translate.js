@@ -49,6 +49,44 @@ function execute(text, from, to, source, model, style) {
         memoryContext.prompt
     );
 
+    var result = callGemini(endpoint, apiKeys, systemInstruction, text, temperature, maxOutputTokens);
+    if (result.error) return Response.error(result.error);
+    var apiKey = apiKeys[result.keyIndex];
+    var finalText = result.text;
+
+    if (shouldRepairChinese(finalText, text, from, to)) {
+        finalText = repairRemainingChinese(endpoint, apiKey, finalText, memoryContext.prompt, maxOutputTokens);
+    }
+
+    // The model sometimes hands the chapter back untranslated, typically when the book's
+    // memory holds Chinese "translations". Retry once without memory; never return (and so
+    // never let the app cache) a mostly-Chinese result as a successful translation.
+    if (isMostlyUntranslated(finalText, text, from, to)) {
+        var retryInstruction = buildInstruction(from, to, source, style, customInstruction, "") +
+            "\n\nBẮT BUỘC: dịch toàn bộ văn bản sang " + to +
+            ". Không được chép lại nguyên văn và không giữ lại câu tiếng Trung nào.";
+        var retry = callGemini(endpoint, [apiKey], retryInstruction, text, temperature, maxOutputTokens);
+        if (retry.error) return Response.error(retry.error);
+        finalText = retry.text;
+        if (shouldRepairChinese(finalText, text, from, to)) {
+            finalText = repairRemainingChinese(endpoint, apiKey, finalText, "", maxOutputTokens);
+        }
+        if (isMostlyUntranslated(finalText, text, from, to)) {
+            return Response.error("Gemini trả về bản dịch vẫn còn nguyên tiếng Trung. Hãy thử lại hoặc đổi model.");
+        }
+        learnMemory = false;
+    }
+
+    if (learnMemory) {
+        var learnedItems = extractTranslationMemory(endpoint, apiKey, text, finalText, memoryContext.prompt);
+        persistTranslationMemory(memoryContext, text, learnedItems);
+    }
+
+    return Response.success(finalText);
+}
+
+// Returns { text, keyIndex, error }; rotates keys on auth/quota errors.
+function callGemini(endpoint, apiKeys, systemInstruction, text, temperature, maxOutputTokens) {
     var request = {
         systemInstruction: {
             parts: [{ text: systemInstruction }]
@@ -80,51 +118,43 @@ function execute(text, from, to, source, model, style) {
         if (!response.ok) {
             lastError = readApiError(response);
             if (response.status === 401 || response.status === 403 || response.status === 429) continue;
-            return Response.error(lastError);
+            return { text: "", keyIndex: keyIndex, error: lastError };
         }
 
-        var responseText = response.text();
         var data;
         try {
-            data = JSON.parse(responseText);
+            data = JSON.parse(response.text());
         } catch (e2) {
-            return Response.error("Gemini trả về dữ liệu không hợp lệ");
+            return { text: "", keyIndex: keyIndex, error: "Gemini trả về dữ liệu không hợp lệ" };
         }
 
         var translated = extractText(data);
         if (!translated) {
             var reason = blockedReason(data);
-            return Response.error(reason ? "Gemini không thể dịch: " + reason : "Gemini không trả về bản dịch");
+            return {
+                text: "",
+                keyIndex: keyIndex,
+                error: reason ? "Gemini không thể dịch: " + reason : "Gemini không trả về bản dịch"
+            };
         }
 
-        var cleaned = stripCodeFence(translated);
-        var parsedResult = parseTranslationResult(cleaned, false);
-        var finalText = parsedResult.translation;
+        var finalText = parseTranslationResult(stripCodeFence(translated), false).translation;
         if (!finalText) {
-            return Response.error("Gemini không trả về bản dịch hợp lệ");
+            return { text: "", keyIndex: keyIndex, error: "Gemini không trả về bản dịch hợp lệ" };
         }
-
-        if (shouldRepairChinese(finalText, text, from, to)) {
-            finalText = repairRemainingChinese(
-                endpoint,
-                apiKeys[keyIndex],
-                finalText,
-                memoryContext.prompt,
-                maxOutputTokens
-            );
-        }
-
-        if (learnMemory) {
-            var learnedItems = extractTranslationMemory(
-                endpoint, apiKeys[keyIndex], text, finalText, memoryContext.prompt
-            );
-            persistTranslationMemory(memoryContext, text, learnedItems);
-        }
-
-        return Response.success(finalText);
+        return { text: finalText, keyIndex: keyIndex, error: "" };
     }
 
-    return Response.error(lastError || "Không có Gemini API key khả dụng");
+    return { text: "", keyIndex: -1, error: lastError || "Không có Gemini API key khả dụng" };
+}
+
+function isMostlyUntranslated(translated, original, from, to) {
+    if (String(to || "").toLowerCase().indexOf("zh") === 0) return false;
+    if (!isChineseSource(original, from)) return false;
+    var originalCount = countChinese(original);
+    if (originalCount < 10) return false;
+    var remaining = countChinese(translated);
+    return remaining >= 10 && remaining >= originalCount * 0.2;
 }
 
 function shouldUseGemini(source) {
@@ -228,7 +258,7 @@ function loadTranslationMemory(text, from, to, source) {
     } catch (dictionaryError) {}
 
     if (context.lines.length > 0) {
-        context.prompt = "Use this book-specific translation memory exactly. Never rename or reinterpret these entries:\n" +
+        context.prompt = "Dùng chính xác bộ nhớ dịch riêng của truyện dưới đây; không đổi tên hoặc diễn giải lại các mục đã có:\n" +
             context.lines.join("\n");
     }
 
@@ -292,6 +322,9 @@ function addBookDictionary(context, text, dictionary, kind) {
 
 function addMemoryLine(context, source, target, kind, note) {
     if (!source || !target || context.included[source]) return;
+    // A Chinese "translation" tells the model to keep the source text and snowballs into
+    // fully untranslated chapters; ignore such entries, including ones already stored.
+    if (containsChinese(target)) return;
     if (context.lines.length >= MAX_MEMORY_MATCHES) return;
 
     context.included[source] = true;
@@ -394,6 +427,7 @@ function persistTranslationMemory(context, input, items) {
         if (!source || !target || context.existing[source]) continue;
         if (source.length > 80 || target.length > 160) continue;
         if (!containsChinese(source) || input.indexOf(source) < 0) continue;
+        if (containsChinese(target)) continue;
 
         var kind = normalizeMemoryKind(item.kind);
         var note = oneLine(String(item.note || ""));
@@ -414,14 +448,14 @@ function persistTranslationMemory(context, input, items) {
 }
 
 function extractTranslationMemory(endpoint, apiKey, original, translated, memoryPrompt) {
-    var instruction = "Identify at most 20 high-confidence proper names, places, organizations, titles, or recurring terms in the Chinese source. " +
-        "Use the matching forms already present in the Vietnamese translation. Do not invent names or reinterpret existing memory. " +
-        "Return only a JSON object with a memory array of objects containing source, target, kind, and note. " +
-        "Each source must be an exact Chinese substring of SOURCE. If uncertain, omit the item.";
+    var instruction = "Xác định tối đa 20 tên riêng, địa danh, tổ chức, danh hiệu hoặc thuật ngữ lặp lại có độ tin cậy cao trong nguyên văn tiếng Trung. " +
+        "Dùng đúng cách gọi tương ứng đã xuất hiện trong bản dịch tiếng Việt. Không tự đặt tên hoặc diễn giải lại bộ nhớ hiện có. " +
+        "Chỉ trả về một đối tượng JSON có mảng memory; mỗi phần tử gồm source, target, kind và note. " +
+        "Mỗi source phải là chuỗi con tiếng Trung chính xác trong NGUYÊN VĂN. Nếu không chắc chắn thì bỏ qua mục đó.";
     if (memoryPrompt) instruction += "\n\n" + memoryPrompt;
     var request = {
         systemInstruction: { parts: [{ text: instruction }] },
-        contents: [{ role: "user", parts: [{ text: "SOURCE:\n" + original + "\n\nVIETNAMESE TRANSLATION:\n" + translated }] }],
+        contents: [{ role: "user", parts: [{ text: "NGUYÊN VĂN:\n" + original + "\n\nBẢN DỊCH TIẾNG VIỆT:\n" + translated }] }],
         generationConfig: {
             temperature: 0,
             maxOutputTokens: 2048,
@@ -515,11 +549,11 @@ function chineseFragmentContext(text, fragment) {
 }
 
 function translateChineseFragmentsOnce(endpoint, apiKey, items, memoryPrompt, maxOutputTokens) {
-    var instruction = "Translate every supplied Chinese fragment into natural Vietnamese for insertion into an existing literary translation. " +
-        "Use each item's context only to resolve meaning, names, and address terms. Do not translate or return the context. " +
-        "Return only one valid JSON object without Markdown using this exact shape: " +
-        '{"items":[{"id":"0","translation":"Vietnamese replacement"}]}. ' +
-        "Return every input id exactly once. Each translation must contain only the replacement for its fragment.";
+    var instruction = "Dịch mọi cụm tiếng Trung được cung cấp sang tiếng Việt tự nhiên để chèn vào bản dịch văn học hiện có. " +
+        "Chỉ dùng ngữ cảnh của từng mục để xác định nghĩa, tên riêng và cách xưng hô; không dịch hoặc trả lại phần ngữ cảnh. " +
+        "Chỉ trả về một đối tượng JSON hợp lệ, không dùng Markdown, theo đúng cấu trúc: " +
+        '{"items":[{"id":"0","translation":"phần tiếng Việt thay thế"}]}. ' +
+        "Trả về mỗi id đầu vào đúng một lần. Mỗi translation chỉ được chứa phần thay thế cho cụm tương ứng.";
     if (memoryPrompt) instruction += "\n\n" + memoryPrompt;
 
     var request = {
@@ -590,7 +624,7 @@ function isChineseSource(text, from) {
 }
 
 function readConfig(key, fallback) {
-    var value = localConfig.getItem(key);
+    var value = localConfig.getItem(translationConfigKey(key));
     return value === null || value === undefined || value === "" ? fallback : String(value);
 }
 
@@ -653,41 +687,53 @@ function normalizeModel(model) {
     var selected = String(model || "").trim();
     var models = {
         "gemini-3.5-flash-lite": true,
-        "gemini-3.8-flash": true,
-        "gemini-3.7-flash": true,
         "gemini-3.6-flash": true,
-        "gemini-3.5-flash": true,
+        "gemini-3.8-flash": true,
+        "gemini-4-argon": true,
+        "gemini-3-flash-preview": true,
+        "gemini-3.1-pro-preview": true,
         "gemini-3.1-flash-lite": true,
-        "gemini-3.1-pro-preview": true
+        "gemini-2.5-flash": true,
+        "gemini-2.5-flash-lite": true,
+        "gemini-2.5-pro": true
     };
+    // Shut-down models keep working for saved settings via Google's own replacements.
+    var retired = {
+        "gemini-3.7-flash": "gemini-3.8-flash",
+        "gemini-3.5-flash": "gemini-3.6-flash"
+    };
+    if (retired[selected]) return retired[selected];
     return models[selected] ? selected : "gemini-3.5-flash-lite";
 }
 
 function buildInstruction(from, to, source, style, customInstruction, memoryPrompt) {
-    var sourceLanguage = from === "auto" ? "the automatically detected source language" : from;
-    var instruction = "You are a professional literary translator. Translate the user text from " +
-        sourceLanguage + " to " + to + ". Preserve meaning, tone, paragraph breaks, " +
-        "line breaks, HTML/Markdown structure, URLs, numbers, and placeholders such as <N1> exactly.";
-
-    var stylePrompt = loadTranslationStylePrompt(style);
-    if (stylePrompt) instruction += "\n\nSTORY TRANSLATION STYLE:\n" + stylePrompt;
-
+    var sourceLanguage = from === "auto" ? "ngôn ngữ nguồn được tự động nhận diện" : from;
+    var stylePrompt = to === "vi" ? loadTranslationStylePrompt(style) : "";
+    var sourcePrompt = "";
     if (source === "chapterContent") {
-        instruction += " Produce fluent prose suitable for a book chapter.";
+        sourcePrompt = "Viết văn xuôi trôi chảy, phù hợp với một chương truyện.";
     } else if (source === "tableOfContent") {
-        instruction += " Keep chapter numbering and make each title concise.";
+        sourcePrompt = "Giữ nguyên số thứ tự chương và dịch tiêu đề ngắn gọn.";
     } else if (source === "detail") {
-        instruction += " Preserve metadata labels and any HTML structure.";
+        sourcePrompt = "Giữ nguyên các nhãn thông tin và mọi cấu trúc HTML.";
     } else if (source === "discovery") {
-        instruction += " Keep titles, tags, and short descriptions concise.";
+        sourcePrompt = "Dịch tiêu đề, thẻ và mô tả ngắn một cách súc tích.";
     }
-
-    if (customInstruction) instruction += " Additional instruction: " + customInstruction;
-
-    if (memoryPrompt) instruction += "\n\n" + memoryPrompt;
-
-    instruction += " Return only the translated text, without explanations, labels, quotation marks, or Markdown fences.";
-    return instruction;
+    var template = readConfig("system_prompt", translationDefaultSystemPrompt());
+    var values = {
+        source_language: sourceLanguage,
+        target_language: to,
+        style_prompt: stylePrompt ? "PHONG CÁCH DỊCH TRUYỆN:\n" + stylePrompt : "",
+        source_prompt: sourcePrompt,
+        custom_instruction: customInstruction ? "YÊU CẦU RIÊNG:\n" + customInstruction : "",
+        memory_prompt: memoryPrompt || ""
+    };
+    for (var key in values) {
+        if (values.hasOwnProperty(key)) {
+            template = template.split("{" + key + "}").join(values[key]);
+        }
+    }
+    return String(template).replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function loadTranslationStylePrompt(style) {

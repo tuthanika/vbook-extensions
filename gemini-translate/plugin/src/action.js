@@ -1,5 +1,11 @@
 function execute() {
-    var actions = {};
+    var actions = {
+        restore_defaults: {
+            name: "Khôi phục cài đặt gốc",
+            description: "Đặt lại toàn bộ cấu hình Gemini Translate và các prompt đã sửa về mặc định. Bộ nhớ dịch theo truyện không bị xóa.",
+            script: "reset-defaults.js"
+        }
+    };
     try {
         var book = localBook.getInfo();
         if (book && book.id) {

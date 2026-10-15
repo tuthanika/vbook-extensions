@@ -1,3 +1,4 @@
+load('prompts.js');
 load('safety.js');
 
 var ANALYSIS_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
@@ -353,6 +354,7 @@ function analysisMergeEntities(bookId, memory, entities, text, position) {
         var source = analysisOneLine(entity.source);
         var target = analysisOneLine(entity.target);
         if (!source || !target || !analysisContainsChinese(source)) continue;
+        if (analysisContainsChinese(target)) continue;
 
         var canonical = analysisFindCanonical(memory, source);
         if (!canonical && text.indexOf(source) < 0) continue;
@@ -489,7 +491,7 @@ function analysisReadApiKeys() {
 }
 
 function analysisReadConfig(key, fallback) {
-    var value = localConfig.getItem(key);
+    var value = localConfig.getItem(translationConfigKey(key));
     return value === null || value === undefined || value === "" ? fallback : String(value);
 }
 

@@ -135,12 +135,25 @@ function baiduGetAcsToken(forceRefresh) {
             "var originalFetch=window.fetch;window.fetch=function(u,opt){try{if(opt&&opt.headers){var h=opt.headers;" +
             "if(h.forEach){h.forEach(function(v,k){if(/acs/i.test(k))window.__vbookAcs.push(v);});}" +
             "else{for(var k in h){if(/acs/i.test(k))window.__vbookAcs.push(h[k]);}}}}catch(e){}return originalFetch.apply(this,arguments);};return 1;})()", 8000);
-        browser.callJs("(function(){var i=document.querySelector('div[contenteditable]')||document.querySelector('[contenteditable]')||document.querySelector('textarea')||document.querySelector('[class*=homeInput]');" +
-            "if(!i)return 0;try{i.focus();}catch(e){}if('value' in i&&i.tagName!=='DIV'){i.value='\\u4f60\\u597d';}else{i.textContent='\\u4f60\\u597d';}" +
-            "i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));" +
-            "i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',keyCode:13,bubbles:true}));return 1;})()", 8000);
-        sleep(4500);
+        // Baidu's input is a Slate editor: setting textContent leaves its React state empty and no
+        // request is sent. Its paste handler follows the same path as real input.
+        browser.callJs("(function(){" +
+            "var i=document.querySelector('[data-slate-editor=true]')||document.querySelector('[contenteditable=true]');" +
+            "if(!i||typeof DataTransfer==='undefined'||typeof ClipboardEvent==='undefined')return 0;" +
+            "i.focus();var d=new DataTransfer();d.setData('text/plain','\\u4f60\\u597d');" +
+            "i.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:d}));" +
+            "return 1;})()", 8000);
+        sleep(1800);
         token = baiduUnwrapBridge(browser.callJs("(window.__vbookAcs&&window.__vbookAcs.length)?window.__vbookAcs[window.__vbookAcs.length-1]:''", 8000));
+
+        // Some page variants only translate after an explicit AI Translate click.
+        if (!token) {
+            browser.callJs("(function(){var b=Array.prototype.slice.call(document.querySelectorAll('button'))" +
+                ".filter(function(x){return (x.innerText||'').trim()==='AI\\u7ffb\\u8bd1';})[0];" +
+                "if(!b)return 0;b.click();return 1;})()", 8000);
+            sleep(3000);
+            token = baiduUnwrapBridge(browser.callJs("(window.__vbookAcs&&window.__vbookAcs.length)?window.__vbookAcs[window.__vbookAcs.length-1]:''", 8000));
+        }
     } catch (e) {
         token = "";
     }
