@@ -17,7 +17,7 @@
     {
       "name": "Baidu Translate",
       "author": "vBook",
-      "version": 2,
+      "version": 3,
       "source": "https://fanyi.baidu.com",
       "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/baidu-translate/plugin.zip",
       "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/baidu-translate/icon.png",
@@ -27,11 +27,61 @@
     {
       "name": "Gemini Translate",
       "author": "vBook",
-      "version": 6,
+      "version": 11,
       "source": "https://ai.google.dev",
       "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/gemini-translate/plugin.zip",
       "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/gemini-translate/icon.png",
       "description": "Dịch nội dung bằng Google Gemini API",
+      "type": "translate"
+    },
+    {
+      "name": "DeepSeek Translate",
+      "author": "vBook",
+      "version": 1,
+      "source": "https://platform.deepseek.com",
+      "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/deepseek-translate/plugin.zip",
+      "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/deepseek-translate/icon.png",
+      "description": "Dịch nội dung bằng DeepSeek API",
+      "type": "translate"
+    },
+    {
+      "name": "ChatGPT Translate",
+      "author": "vBook",
+      "version": 1,
+      "source": "https://platform.openai.com",
+      "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/chatgpt-translate/plugin.zip",
+      "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/chatgpt-translate/icon.png",
+      "description": "Dịch nội dung bằng OpenAI ChatGPT API",
+      "type": "translate"
+    },
+    {
+      "name": "Claude Translate",
+      "author": "vBook",
+      "version": 1,
+      "source": "https://platform.claude.com",
+      "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/claude-translate/plugin.zip",
+      "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/claude-translate/icon.png",
+      "description": "Dịch nội dung bằng Anthropic Claude API",
+      "type": "translate"
+    },
+    {
+      "name": "Google Translate",
+      "author": "vBook",
+      "version": 1,
+      "source": "https://translate.google.com",
+      "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/google-translate/plugin.zip",
+      "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/google-translate/icon.png",
+      "description": "Dịch truyện bằng Google Translate, không cần API key",
+      "type": "translate"
+    },
+    {
+      "name": "DeepL Translate",
+      "author": "vBook",
+      "version": 1,
+      "source": "https://www.deepl.com",
+      "path": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/deepl-translate/plugin.zip",
+      "icon": "https://raw.githubusercontent.com/Darkrai9x/vbook-extensions/master/deepl-translate/icon.png",
+      "description": "Dịch nội dung bằng DeepL API Free hoặc Pro",
       "type": "translate"
     }
   ]
