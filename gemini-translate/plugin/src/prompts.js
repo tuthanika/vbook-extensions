@@ -71,6 +71,17 @@ function translationDefaultSystemPrompt() {
 function translationDefaultStyleDefinitions() {
     return [
         {
+            id: "tu-nhien",
+            name: "Tự nhiên",
+            description: "Dùng cho mọi ngôn ngữ nguồn và đích; mặc định khi nguyên tác không phải tiếng Trung",
+            rule: "PHONG CÁCH TỰ NHIÊN (MỌI NGÔN NGỮ):\n" +
+                "- Viết bằng {target_language} chuẩn, tự nhiên như sách xuất bản trong ngôn ngữ đó; ưu tiên câu rõ nghĩa, đúng ngữ pháp và nhịp đọc trôi chảy.\n" +
+                "- Giữ bối cảnh văn hóa của nguyên tác: không bản địa hóa tên người, địa danh, món ăn, tiền tệ hay phong tục sang văn hóa của ngôn ngữ đích.\n" +
+                "- Tên riêng giữ nguyên hoặc phiên âm theo quy ước phổ biến của ngôn ngữ đích; một tên đã chọn cách viết phải nhất quán.\n" +
+                "- Xưng hô, kính ngữ và mức độ trang trọng phải phản ánh đúng quan hệ, tuổi và địa vị trong nguyên tác, dùng phương tiện tương đương của ngôn ngữ đích.\n" +
+                "- Thành ngữ, chơi chữ và tiếng lóng dịch theo ý tương đương; không dịch từng chữ khi làm câu tối nghĩa và không thêm giải thích."
+        },
+        {
             id: "huyen-huyen",
             name: "Huyền huyễn",
             description: "Tiên hiệp, tu chân, huyền huyễn và cổ phong Trung Quốc",
@@ -251,3 +262,234 @@ function translationLegacyPrompt(styleRule) {
         "Phong cách: " + styleRule + "\n" +
         "Trước khi hoàn tất, tự kiểm tra im lặng: có dịch sót không; có còn chữ Hán không; tên, giới tính, quan hệ, xưng hô và thuật ngữ có nhất quán với bộ nhớ không; có vô tình thêm hoặc bỏ thông tin không."
 }
+
+
+// --- Language helpers shared by translate.js, analyze-memory.js and config.js ---
+
+var TRANSLATION_LANGUAGE_NAMES = {
+    "zh": "tiếng Trung", "zh-CN": "tiếng Trung giản thể", "zh-TW": "tiếng Trung phồn thể",
+    "en": "tiếng Anh", "vi": "tiếng Việt", "ja": "tiếng Nhật", "ko": "tiếng Hàn",
+    "hi": "tiếng Hindi", "ar": "tiếng Ả Rập", "ru": "tiếng Nga", "de": "tiếng Đức",
+    "fr": "tiếng Pháp", "es": "tiếng Tây Ban Nha", "pt": "tiếng Bồ Đào Nha", "it": "tiếng Ý",
+    "tr": "tiếng Thổ Nhĩ Kỳ", "id": "tiếng Indonesia", "th": "tiếng Thái", "af": "tiếng Afrikaans",
+    "sq": "tiếng Albania", "hy": "tiếng Armenia", "az": "tiếng Azerbaijan", "eu": "tiếng Basque",
+    "be": "tiếng Belarus", "bn": "tiếng Bengal", "bs": "tiếng Bosnia", "hr": "tiếng Croatia",
+    "cs": "tiếng Séc", "da": "tiếng Đan Mạch", "nl": "tiếng Hà Lan", "et": "tiếng Estonia",
+    "fil": "tiếng Filipino", "fi": "tiếng Phần Lan", "gl": "tiếng Galicia", "ka": "tiếng Gruzia",
+    "el": "tiếng Hy Lạp", "gu": "tiếng Gujarat", "he": "tiếng Do Thái", "hu": "tiếng Hungary",
+    "is": "tiếng Iceland", "ga": "tiếng Ireland", "kn": "tiếng Kannada", "kk": "tiếng Kazakh",
+    "lv": "tiếng Latvia", "lt": "tiếng Litva", "mk": "tiếng Macedonia", "ms": "tiếng Mã Lai",
+    "ml": "tiếng Malayalam", "mr": "tiếng Marathi", "mn": "tiếng Mông Cổ", "ne": "tiếng Nepal",
+    "no": "tiếng Na Uy", "fa": "tiếng Ba Tư", "pl": "tiếng Ba Lan", "pa": "tiếng Punjab",
+    "ro": "tiếng Romania", "sr": "tiếng Serbia", "sk": "tiếng Slovakia", "sl": "tiếng Slovenia",
+    "sw": "tiếng Swahili", "sv": "tiếng Thụy Điển", "ta": "tiếng Tamil", "te": "tiếng Telugu",
+    "uk": "tiếng Ukraina", "ur": "tiếng Urdu", "uz": "tiếng Uzbek", "cy": "tiếng Wales"
+};
+
+function translationLanguageName(code) {
+    var value = String(code || "");
+    if (!value || value === "auto") return "ngôn ngữ nguồn được tự động nhận diện";
+    var name = TRANSLATION_LANGUAGE_NAMES[value];
+    return name ? name + " (" + value + ")" : value;
+}
+
+// Script ranges used to tell what a text is written in. Han is listed after kana so
+// Japanese (kana mixed with kanji) is recognised as kana.
+var TRANSLATION_SCRIPTS = {
+    kana: /[\u3040-\u30ff\u31f0-\u31ff]/g,
+    hangul: /[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/g,
+    han: /[\u3400-\u9fff\uf900-\ufaff]/g,
+    cyrillic: /[\u0400-\u04ff]/g,
+    arabic: /[\u0600-\u06ff\u0750-\u077f]/g,
+    hebrew: /[\u0590-\u05ff]/g,
+    greek: /[\u0370-\u03ff]/g,
+    thai: /[\u0e00-\u0e7f]/g,
+    devanagari: /[\u0900-\u097f]/g,
+    bengali: /[\u0980-\u09ff]/g,
+    latin: /[A-Za-z\u00c0-\u024f\u1e00-\u1eff]/g
+};
+
+var TRANSLATION_LANGUAGE_SCRIPTS = {
+    "zh": "han", "zh-CN": "han", "zh-TW": "han", "ja": "kana", "ko": "hangul",
+    "ru": "cyrillic", "uk": "cyrillic", "be": "cyrillic", "mk": "cyrillic", "sr": "cyrillic",
+    "kk": "cyrillic", "mn": "cyrillic", "ar": "arabic", "fa": "arabic", "ur": "arabic",
+    "he": "hebrew", "el": "greek", "th": "thai", "hi": "devanagari", "mr": "devanagari",
+    "ne": "devanagari", "bn": "bengali", "hy": "armenian", "ka": "georgian", "gu": "gujarati",
+    "pa": "gurmukhi", "ta": "tamil", "te": "telugu", "kn": "kannada", "ml": "malayalam"
+};
+
+function translationCountScript(text, script) {
+    var pattern = TRANSLATION_SCRIPTS[script];
+    if (!pattern) return 0;
+    var matches = String(text || "").match(pattern);
+    return matches ? matches.length : 0;
+}
+
+function translationDominantScript(text) {
+    var value = String(text || "");
+    var kana = translationCountScript(value, "kana");
+    var han = translationCountScript(value, "han");
+    if (kana > 0 && kana * 10 >= han) return "kana";
+    var best = "";
+    var bestCount = 0;
+    for (var script in TRANSLATION_SCRIPTS) {
+        if (!TRANSLATION_SCRIPTS.hasOwnProperty(script) || script === "kana") continue;
+        var count = translationCountScript(value, script);
+        if (count > bestCount) {
+            best = script;
+            bestCount = count;
+        }
+    }
+    return best;
+}
+
+function translationLanguageScript(code) {
+    return TRANSLATION_LANGUAGE_SCRIPTS[String(code || "")] || "latin";
+}
+
+function translationLooksVietnamese(text) {
+    var value = String(text || "");
+    var letters = translationCountScript(value, "latin");
+    if (letters < 20) return false;
+    var marks = value.match(/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹĂÂĐÊÔƠƯ]/g);
+    return (marks ? marks.length : 0) >= letters * 0.03;
+}
+
+function translationIsChineseLanguage(code) {
+    var value = String(code || "").toLowerCase();
+    return value === "zh" || value.indexOf("zh-") === 0;
+}
+
+function translationIsChineseSource(text, from) {
+    if (translationIsChineseLanguage(from)) return true;
+    if (String(from || "auto") !== "auto") return false;
+    return translationDominantScript(text) === "han";
+}
+
+// True only when the text is known to be in a different language than `to`, so checks
+// that compare source and output (untranslated detection, memory) cannot misfire on a
+// book that is already written in the target language.
+function translationSourceDiffers(text, from, to) {
+    var source = String(from || "auto");
+    var target = String(to || "");
+    if (!target) return false;
+    if (source !== "auto") {
+        if (translationIsChineseLanguage(source) && translationIsChineseLanguage(target)) return false;
+        return source !== target;
+    }
+    var script = translationDominantScript(text);
+    if (!script) return false;
+    var targetScript = translationLanguageScript(target);
+    if (script !== "latin" || targetScript !== "latin") return script !== targetScript;
+    var vietnamese = translationLooksVietnamese(text);
+    if (target === "vi") return !vietnamese;
+    return vietnamese;
+}
+
+function translationCompareWords(text) {
+    var words = String(text || "").toLowerCase().match(/[a-z\u00c0-\u024f\u1e00-\u1eff\u0400-\u04ff]{3,}/g);
+    return words || [];
+}
+
+// Detects a result that is still mostly the source text. Non-Latin sources compare how
+// much of the source script survives; Latin-to-Latin pairs compare shared words.
+function translationIsUntranslated(translated, original, from, to) {
+    var output = String(translated || "");
+    var input = String(original || "");
+    if (!output.trim() || !translationSourceDiffers(input, from, to)) return false;
+    if (output.replace(/\s+/g, " ").trim() === input.replace(/\s+/g, " ").trim()) {
+        return input.trim().length >= 8;
+    }
+
+    var script = translationDominantScript(input);
+    if (script && script !== "latin" && script !== translationLanguageScript(to)) {
+        var originalCount = translationCountScript(input, script);
+        if (originalCount < 10) return false;
+        var remaining = translationCountScript(output, script);
+        var ratio = script === "han" ? 0.2 : 0.5;
+        return remaining >= 10 && remaining >= originalCount * ratio;
+    }
+
+    if (script === "latin" && translationLanguageScript(to) === "latin") {
+        var sourceWords = translationCompareWords(input);
+        if (sourceWords.length < 12) return false;
+        var outputWords = {};
+        var produced = translationCompareWords(output);
+        for (var i = 0; i < produced.length; i++) outputWords[produced[i]] = true;
+        var shared = 0;
+        for (var j = 0; j < sourceWords.length; j++) {
+            if (outputWords[sourceWords[j]]) shared++;
+        }
+        return shared >= sourceWords.length * 0.75;
+    }
+    return false;
+}
+
+function translationIsBoundaryChar(value) {
+    return !value || !/[0-9A-Za-z\u00c0-\u024f\u1e00-\u1eff\u0370-\u03ff\u0400-\u04ff\u0590-\u05ff\u0600-\u06ff]/.test(value);
+}
+
+// Memory terms match as substrings in scripts without spaces, and on word boundaries
+// elsewhere so a name like "Ann" does not match inside "Annual".
+function translationTermInText(text, term) {
+    var value = String(text || "");
+    var needle = String(term || "");
+    if (!needle) return false;
+    if (/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af\u0e00-\u0e7f]/.test(needle)) {
+        return value.indexOf(needle) >= 0;
+    }
+    var position = value.indexOf(needle);
+    while (position >= 0) {
+        if (translationIsBoundaryChar(value.charAt(position - 1)) &&
+            translationIsBoundaryChar(value.charAt(position + needle.length))) {
+            return true;
+        }
+        position = value.indexOf(needle, position + 1);
+    }
+    return false;
+}
+
+// A learned memory source must come from the original: Chinese terms when the source is
+// Chinese; otherwise a name-like term (capitalised, or in a caseless script) that appears
+// in the text and differs from its translation.
+function translationIsMemoryTerm(term, target, text, chineseSource) {
+    var source = String(term || "").trim();
+    if (!source || source === String(target || "").trim()) return false;
+    if (chineseSource) {
+        return /[\u3400-\u9fff\uf900-\ufaff]/.test(source) && String(text || "").indexOf(source) >= 0;
+    }
+    if (!translationTermInText(text, source)) return false;
+    var first = source.charAt(0);
+    return first !== first.toLowerCase() || first === first.toUpperCase();
+}
+
+var TRANSLATION_LANGUAGES_PREFIX = "memory_languages_";
+
+function translationRememberLanguages(bookId, from, to) {
+    if (!bookId || !to) return;
+    try {
+        localStorage.setItem(TRANSLATION_LANGUAGES_PREFIX + bookId, JSON.stringify({ from: from || "auto", to: to }));
+    } catch (e) {}
+}
+
+function translationRecalledLanguages(bookId) {
+    try {
+        var stored = JSON.parse(localStorage.getItem(TRANSLATION_LANGUAGES_PREFIX + bookId) || "{}");
+        if (stored && stored.to) return { from: String(stored.from || "auto"), to: String(stored.to) };
+    } catch (e) {}
+    return { from: "auto", to: "vi" };
+}
+
+function translationResolveStyle(style, chineseSource) {
+    var selected = String(style || "").trim();
+    if (selected && selected !== "natural") return selected;
+    return chineseSource ? "huyen-huyen" : "tu-nhien";
+}
+
+function translationNonChineseNote(chineseSource) {
+    if (chineseSource) return "";
+    return "Nguyên tác không phải tiếng Trung: bỏ qua mọi chỉ dẫn chỉ dành cho truyện Trung Quốc " +
+        "(Hán Việt, xưng hô cổ phong, địa danh hay văn hóa Trung Quốc). Tên riêng giữ nguyên hoặc phiên âm " +
+        "theo ngôn ngữ gốc của truyện, xưng hô dựa trên quan hệ và văn hóa của nguyên tác.";
+}
+

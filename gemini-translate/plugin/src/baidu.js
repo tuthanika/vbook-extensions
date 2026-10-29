@@ -3,34 +3,18 @@ var BAIDU_HOME_URL = "https://fanyi.baidu.com/";
 var BAIDU_TOKEN_KEY = "baidu_acs_token";
 var BAIDU_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+// Baidu Fanyi language codes; ids missing here are sent unchanged.
 var BAIDU_LANGUAGE_MAP = {
-    "zh": "zh",
-    "zh-CN": "zh",
-    "zh-TW": "cht",
-    "en": "en",
-    "es": "spa",
-    "hi": "hi",
-    "ar": "ara",
-    "bn": "ben",
-    "pt": "pt",
-    "ru": "ru",
-    "ja": "jp",
-    "pa": "pan",
-    "de": "de",
-    "jv": "jav",
-    "ko": "kor",
-    "fr": "fra",
-    "vi": "vie",
-    "te": "tel",
-    "tr": "tr",
-    "th": "th",
-    "it": "it",
-    "nl": "nl",
-    "fa": "per",
-    "ms": "may",
-    "sw": "swa",
-    "fil": "fil",
-    "tl": "fil"
+    "zh": "zh", "zh-CN": "zh", "zh-TW": "cht", "en": "en", "vi": "vie", "ja": "jp", "ko": "kor",
+    "fr": "fra", "es": "spa", "th": "th", "ar": "ara", "ru": "ru", "pt": "pt", "de": "de", "it": "it",
+    "el": "el", "nl": "nl", "pl": "pl", "bg": "bul", "et": "est", "da": "dan", "fi": "fin", "cs": "cs",
+    "ro": "rom", "sl": "slo", "sv": "swe", "hu": "hu", "hi": "hi", "bn": "ben", "pa": "pan",
+    "jv": "jav", "te": "tel", "tr": "tr", "fa": "per", "ms": "may", "sw": "swa", "fil": "fil",
+    "tl": "fil", "id": "id", "af": "afr", "sq": "alb", "hy": "arm", "az": "aze", "eu": "baq",
+    "be": "bel", "bs": "bos", "hr": "hrv", "gl": "glg", "ka": "geo", "gu": "guj", "he": "heb",
+    "is": "ice", "ga": "gle", "kn": "kan", "kk": "kaz", "lv": "lav", "lt": "lit", "mk": "mac",
+    "ml": "mal", "mr": "mar", "mn": "mon", "ne": "nep", "no": "nor", "sr": "srp", "sk": "sk",
+    "ta": "tam", "uk": "ukr", "ur": "urd", "uz": "uzb", "cy": "wel"
 };
 
 function baiduTranslateText(text, from, to) {

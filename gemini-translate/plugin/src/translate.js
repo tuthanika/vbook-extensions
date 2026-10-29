@@ -25,13 +25,16 @@ function execute(text, from, to, source, model, style) {
         return Response.error("Chưa chọn ngôn ngữ đích");
     }
 
-    if (!shouldUseGemini(source)) {
-        return translateWithFallback(text, from, to, source);
-    }
-
+    // Without a key the engine reports it instead of silently translating with QT/Baidu.
     var apiKeys = readApiKeys();
     if (apiKeys.length === 0) {
         return Response.error("Vui lòng thêm Gemini API key trong cài đặt extension");
+    }
+
+    if (!shouldUseGemini(source)) {
+        var fallback = translateWithFallback(text, from, to, source);
+        if (fallback.text) return Response.success(fallback.text);
+        // Baidu does not cover every listed language; use Gemini instead.
     }
 
     var temperature = readNumber("temperature", 0.2, 0, 2);
@@ -41,6 +44,7 @@ function execute(text, from, to, source, model, style) {
     var memoryContext = loadTranslationMemory(text, from, to, source);
     var learnMemory = memoryContext.enabled && readBoolean("auto_translation_memory", true);
     var systemInstruction = buildInstruction(
+        text,
         from,
         to,
         source,
@@ -55,30 +59,30 @@ function execute(text, from, to, source, model, style) {
     var finalText = result.text;
 
     if (shouldRepairChinese(finalText, text, from, to)) {
-        finalText = repairRemainingChinese(endpoint, apiKey, finalText, memoryContext.prompt, maxOutputTokens);
+        finalText = repairRemainingChinese(endpoint, apiKey, finalText, to, memoryContext.prompt, maxOutputTokens);
     }
 
-    // The model sometimes hands the chapter back untranslated, typically when the book's
-    // memory holds Chinese "translations". Retry once without memory; never return (and so
-    // never let the app cache) a mostly-Chinese result as a successful translation.
-    if (isMostlyUntranslated(finalText, text, from, to)) {
-        var retryInstruction = buildInstruction(from, to, source, style, customInstruction, "") +
-            "\n\nBẮT BUỘC: dịch toàn bộ văn bản sang " + to +
-            ". Không được chép lại nguyên văn và không giữ lại câu tiếng Trung nào.";
+    // The model sometimes hands the text back untranslated, typically when the book's
+    // memory holds source-language "translations". Retry once without memory; never return
+    // (and so never let the app cache) a mostly untranslated result as a success.
+    if (translationIsUntranslated(finalText, text, from, to)) {
+        var retryInstruction = buildInstruction(text, from, to, source, style, customInstruction, "") +
+            "\n\nBẮT BUỘC: dịch toàn bộ văn bản sang " + translationLanguageName(to) +
+            ". Không được chép lại nguyên văn và không giữ lại câu nào bằng ngôn ngữ gốc.";
         var retry = callGemini(endpoint, [apiKey], retryInstruction, text, temperature, maxOutputTokens);
         if (retry.error) return Response.error(retry.error);
         finalText = retry.text;
         if (shouldRepairChinese(finalText, text, from, to)) {
-            finalText = repairRemainingChinese(endpoint, apiKey, finalText, "", maxOutputTokens);
+            finalText = repairRemainingChinese(endpoint, apiKey, finalText, to, "", maxOutputTokens);
         }
-        if (isMostlyUntranslated(finalText, text, from, to)) {
-            return Response.error("Gemini trả về bản dịch vẫn còn nguyên tiếng Trung. Hãy thử lại hoặc đổi model.");
+        if (translationIsUntranslated(finalText, text, from, to)) {
+            return Response.error("Gemini trả về bản dịch vẫn giống nguyên văn. Hãy thử lại hoặc đổi model.");
         }
         learnMemory = false;
     }
 
     if (learnMemory) {
-        var learnedItems = extractTranslationMemory(endpoint, apiKey, text, finalText, memoryContext.prompt);
+        var learnedItems = extractTranslationMemory(endpoint, apiKey, text, finalText, from, to, memoryContext.prompt);
         persistTranslationMemory(memoryContext, text, learnedItems);
     }
 
@@ -154,15 +158,6 @@ function callGemini(endpoint, apiKeys, systemInstruction, text, temperature, max
     return { text: "", keyIndex: -1, error: lastError || "Không có Gemini API key khả dụng" };
 }
 
-function isMostlyUntranslated(translated, original, from, to) {
-    if (String(to || "").toLowerCase().indexOf("zh") === 0) return false;
-    if (!isChineseSource(original, from)) return false;
-    var originalCount = countChinese(original);
-    if (originalCount < 10) return false;
-    var remaining = countChinese(translated);
-    return remaining >= 10 && remaining >= originalCount * 0.2;
-}
-
 function shouldUseGemini(source) {
     if (source === "tableOfContent") return readBoolean("translate_table_of_content", false);
     if (source === "detail") return readBoolean("translate_detail", false);
@@ -171,18 +166,22 @@ function shouldUseGemini(source) {
 }
 
 function translateWithFallback(text, from, to, source) {
+    var qtText = "";
     if (readBoolean("use_qt_fallback", true)) {
-        var qtText = translateWithQt(text, from, to, source);
-        if (qtText) {
-            return Response.success(qtText);
+        qtText = translateWithQt(text, from, to, source);
+        // QT leaves words missing from its dictionaries in Chinese; prefer Baidu for those
+        // and keep the partial QT result only if Baidu fails.
+        if (qtText && !containsChinese(qtText)) {
+            return { text: qtText, error: "" };
         }
     }
 
     var baiduResult = baiduTranslateText(text, from, to);
     if (baiduResult.text) {
-        return Response.success(baiduResult.text);
+        return { text: baiduResult.text, error: "" };
     }
-    return Response.error(baiduResult.error || "Không thể dịch bằng Baidu");
+    if (qtText) return { text: qtText, error: "" };
+    return { text: "", error: baiduResult.error || "Không thể dịch bằng Baidu" };
 }
 
 function translateWithQt(text, from, to, source) {
@@ -215,7 +214,9 @@ function loadTranslationMemory(text, from, to, source) {
 
     if (!readBoolean("use_translation_memory", true)) return context;
 
-    if (source !== "chapterContent" || to !== "vi" || !isChineseSource(text, from)) return context;
+    if (source !== "chapterContent" || !translationSourceDiffers(text, from, to)) return context;
+    context.chinese = isChineseSource(text, from);
+    context.to = to;
 
     var info;
     try {
@@ -228,6 +229,7 @@ function loadTranslationMemory(text, from, to, source) {
 
     context.enabled = true;
     context.bookId = String(info.id);
+    translationRememberLanguages(context.bookId, from, to);
 
     try {
         var totalRows = localDatabase.count(context.bookId, TRANSLATION_MEMORY_TABLE);
@@ -257,11 +259,14 @@ function loadTranslationMemory(text, from, to, source) {
 
     } catch (databaseError) {}
 
-    try {
-        addBookDictionary(context, text, localBook.getNames(), "name");
-        addBookDictionary(context, text, localBook.getQtNames(), "name");
-        addBookDictionary(context, text, localBook.getQtVietPhrases(), "term");
-    } catch (dictionaryError) {}
+    // The book's QT names and VietPhrases are Chinese-to-Vietnamese dictionaries.
+    if (context.chinese && to === "vi") {
+        try {
+            addBookDictionary(context, text, localBook.getNames(), "name");
+            addBookDictionary(context, text, localBook.getQtNames(), "name");
+            addBookDictionary(context, text, localBook.getQtVietPhrases(), "term");
+        } catch (dictionaryError) {}
+    }
 
     if (context.lines.length > 0) {
         context.prompt = "Dùng chính xác bộ nhớ dịch riêng của truyện dưới đây; không đổi tên hoặc diễn giải lại các mục đã có:\n" +
@@ -299,13 +304,13 @@ function addStoredMemoryLine(context, source, rawValue, text) {
         if (data && data.autoNote) details.push(oneLine(data.autoNote));
     } catch (e) {}
 
-    var matched = text.indexOf(source) >= 0;
+    var matched = translationTermInText(text, source);
     var validAliases = [];
     for (var aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++) {
         var alias = oneLine(aliases[aliasIndex]);
         if (!alias || alias === source) continue;
         validAliases.push(alias);
-        if (text.indexOf(alias) >= 0) matched = true;
+        if (translationTermInText(text, alias)) matched = true;
     }
     if (!matched) return;
 
@@ -330,7 +335,7 @@ function addMemoryLine(context, source, target, kind, note) {
     if (!source || !target || context.included[source]) return;
     // A Chinese "translation" tells the model to keep the source text and snowballs into
     // fully untranslated chapters; ignore such entries, including ones already stored.
-    if (containsChinese(target)) return;
+    if (containsChinese(target) && !translationIsChineseLanguage(context.to)) return;
     if (context.lines.length >= MAX_MEMORY_MATCHES) return;
 
     context.included[source] = true;
@@ -432,8 +437,8 @@ function persistTranslationMemory(context, input, items) {
         var target = String(item.target || "").trim();
         if (!source || !target || context.existing[source]) continue;
         if (source.length > 80 || target.length > 160) continue;
-        if (!containsChinese(source) || input.indexOf(source) < 0) continue;
-        if (containsChinese(target)) continue;
+        if (!translationIsMemoryTerm(source, target, input, context.chinese)) continue;
+        if (containsChinese(target) && !translationIsChineseLanguage(context.to)) continue;
 
         var kind = normalizeMemoryKind(item.kind);
         var note = oneLine(String(item.note || ""));
@@ -453,15 +458,17 @@ function persistTranslationMemory(context, input, items) {
     } catch (e) {}
 }
 
-function extractTranslationMemory(endpoint, apiKey, original, translated, memoryPrompt) {
-    var instruction = "Xác định tối đa 20 tên riêng, địa danh, tổ chức, danh hiệu hoặc thuật ngữ lặp lại có độ tin cậy cao trong nguyên văn tiếng Trung. " +
-        "Dùng đúng cách gọi tương ứng đã xuất hiện trong bản dịch tiếng Việt. Không tự đặt tên hoặc diễn giải lại bộ nhớ hiện có. " +
+function extractTranslationMemory(endpoint, apiKey, original, translated, from, to, memoryPrompt) {
+    var sourceName = isChineseSource(original, from) ? translationLanguageName("zh") : translationLanguageName(from);
+    var targetName = translationLanguageName(to);
+    var instruction = "Xác định tối đa 20 tên riêng, địa danh, tổ chức, danh hiệu hoặc thuật ngữ lặp lại có độ tin cậy cao trong nguyên văn (" + sourceName + "). " +
+        "Dùng đúng cách gọi tương ứng đã xuất hiện trong bản dịch (" + targetName + "). Không tự đặt tên hoặc diễn giải lại bộ nhớ hiện có. " +
         "Chỉ trả về một đối tượng JSON có mảng memory; mỗi phần tử gồm source, target, kind và note. " +
-        "Mỗi source phải là chuỗi con tiếng Trung chính xác trong NGUYÊN VĂN. Nếu không chắc chắn thì bỏ qua mục đó.";
+        "Mỗi source phải là chuỗi con chính xác trong NGUYÊN VĂN, viết đúng như nguyên văn. Không lấy từ thông thường. Nếu không chắc chắn thì bỏ qua mục đó.";
     if (memoryPrompt) instruction += "\n\n" + memoryPrompt;
     var request = {
         systemInstruction: { parts: [{ text: instruction }] },
-        contents: [{ role: "user", parts: [{ text: "NGUYÊN VĂN:\n" + original + "\n\nBẢN DỊCH TIẾNG VIỆT:\n" + translated }] }],
+        contents: [{ role: "user", parts: [{ text: "NGUYÊN VĂN:\n" + original + "\n\nBẢN DỊCH:\n" + translated }] }],
         generationConfig: {
             temperature: 0,
             maxOutputTokens: 2048,
@@ -499,13 +506,13 @@ function normalizeMemoryKind(value) {
 
 function shouldRepairChinese(translated, original, from, to) {
     if (!readBoolean("retry_untranslated_chinese", true)) return false;
-    if (to !== "vi" || !isChineseSource(original, from)) return false;
+    if (translationIsChineseLanguage(to) || !isChineseSource(original, from)) return false;
     var count = countChinese(translated);
     if (count === 0) return false;
     return true;
 }
 
-function repairRemainingChinese(endpoint, apiKey, draft, memoryPrompt, maxOutputTokens) {
+function repairRemainingChinese(endpoint, apiKey, draft, to, memoryPrompt, maxOutputTokens) {
     var previous = String(draft || "");
     var matches = previous.match(/[\u3400-\u9fff\uf900-\ufaff]+/g) || [];
     var seen = {};
@@ -529,6 +536,7 @@ function repairRemainingChinese(endpoint, apiKey, draft, memoryPrompt, maxOutput
         endpoint,
         apiKey,
         items,
+        to,
         memoryPrompt,
         maxOutputTokens
     );
@@ -554,11 +562,11 @@ function chineseFragmentContext(text, fragment) {
     return value.substring(start, end);
 }
 
-function translateChineseFragmentsOnce(endpoint, apiKey, items, memoryPrompt, maxOutputTokens) {
-    var instruction = "Dịch mọi cụm tiếng Trung được cung cấp sang tiếng Việt tự nhiên để chèn vào bản dịch văn học hiện có. " +
+function translateChineseFragmentsOnce(endpoint, apiKey, items, to, memoryPrompt, maxOutputTokens) {
+    var instruction = "Dịch mọi cụm tiếng Trung được cung cấp sang " + translationLanguageName(to) + " tự nhiên để chèn vào bản dịch văn học hiện có. " +
         "Chỉ dùng ngữ cảnh của từng mục để xác định nghĩa, tên riêng và cách xưng hô; không dịch hoặc trả lại phần ngữ cảnh. " +
         "Chỉ trả về một đối tượng JSON hợp lệ, không dùng Markdown, theo đúng cấu trúc: " +
-        '{"items":[{"id":"0","translation":"phần tiếng Việt thay thế"}]}. ' +
+        '{"items":[{"id":"0","translation":"phần thay thế đã dịch"}]}. ' +
         "Trả về mỗi id đầu vào đúng một lần. Mỗi translation chỉ được chứa phần thay thế cho cụm tương ứng.";
     if (memoryPrompt) instruction += "\n\n" + memoryPrompt;
 
@@ -623,10 +631,7 @@ function oneLine(value) {
 }
 
 function isChineseSource(text, from) {
-    var language = String(from || "auto").toLowerCase();
-    if (language === "zh" || language.indexOf("zh-") === 0) return true;
-    if (language !== "auto") return false;
-    return /[\u3400-\u9fff\uf900-\ufaff]/.test(text);
+    return translationIsChineseSource(text, from);
 }
 
 function readConfig(key, fallback) {
@@ -712,9 +717,18 @@ function normalizeModel(model) {
     return models[selected] ? selected : "gemini-3.5-flash-lite";
 }
 
-function buildInstruction(from, to, source, style, customInstruction, memoryPrompt) {
-    var sourceLanguage = from === "auto" ? "ngôn ngữ nguồn được tự động nhận diện" : from;
-    var stylePrompt = to === "vi" ? loadTranslationStylePrompt(style) : "";
+function buildInstruction(text, from, to, source, style, customInstruction, memoryPrompt) {
+    var chineseSource = isChineseSource(text, from);
+    var sourceLanguage = translationLanguageName(from);
+    var targetLanguage = translationLanguageName(to);
+    // Genre styles are written for Vietnamese output; the generic style fits any target.
+    var styleId = translationResolveStyle(style, chineseSource);
+    var stylePrompt = to === "vi" || styleId === "tu-nhien" ? loadTranslationStylePrompt(styleId) : "";
+    if (stylePrompt) {
+        stylePrompt = stylePrompt.split("{target_language}").join(targetLanguage);
+        var note = translationNonChineseNote(chineseSource);
+        if (note) stylePrompt += "\n" + note;
+    }
     var sourcePrompt = "";
     if (source === "chapterContent") {
         sourcePrompt = "Viết văn xuôi trôi chảy, phù hợp với một chương truyện.";
@@ -728,7 +742,7 @@ function buildInstruction(from, to, source, style, customInstruction, memoryProm
     var template = readConfig("system_prompt", translationDefaultSystemPrompt());
     var values = {
         source_language: sourceLanguage,
-        target_language: to,
+        target_language: targetLanguage,
         style_prompt: stylePrompt ? "PHONG CÁCH DỊCH TRUYỆN:\n" + stylePrompt : "",
         source_prompt: sourcePrompt,
         custom_instruction: customInstruction ? "YÊU CẦU RIÊNG:\n" + customInstruction : "",
@@ -743,14 +757,15 @@ function buildInstruction(from, to, source, style, customInstruction, memoryProm
 }
 
 function loadTranslationStylePrompt(style) {
-    var selected = translationNormalizeStyle(style);
+    var selected = String(style || "");
     try {
         var stored = localDatabase.get(TRANSLATION_PROMPT_SCOPE, TRANSLATION_PROMPT_TABLE, selected);
         if (stored !== null && stored !== undefined) {
             return String(stored).trim();
         }
     } catch (e) {}
-    return translationDefaultPrompt(selected);
+    var prompts = translationDefaultPrompts();
+    return prompts[selected] || prompts["tu-nhien"];
 }
 
 function extractText(data) {

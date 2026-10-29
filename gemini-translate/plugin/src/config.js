@@ -36,19 +36,19 @@ function execute() {
         };
     config[translationConfigKey("translate_table_of_content")] = {
             title: "Dùng Gemini dịch mục lục",
-            subtitle: "Tắt: dùng QT trước, sau đó fallback sang Baidu",
+            subtitle: "Tắt: dùng QT (Trung → Việt), sau đó Baidu; ngôn ngữ Baidu không hỗ trợ sẽ dùng Gemini",
             default: "false",
             mode: "toggle"
         };
     config[translationConfigKey("translate_detail")] = {
             title: "Dùng Gemini dịch chi tiết",
-            subtitle: "Tắt: dùng QT trước, sau đó fallback sang Baidu",
+            subtitle: "Tắt: dùng QT (Trung → Việt), sau đó Baidu; ngôn ngữ Baidu không hỗ trợ sẽ dùng Gemini",
             default: "false",
             mode: "toggle"
         };
     config[translationConfigKey("translate_discovery")] = {
             title: "Dùng Gemini dịch khám phá",
-            subtitle: "Tắt: dùng QT trước, sau đó fallback sang Baidu",
+            subtitle: "Tắt: dùng QT (Trung → Việt), sau đó Baidu; ngôn ngữ Baidu không hỗ trợ sẽ dùng Gemini",
             default: "false",
             mode: "toggle"
         };
@@ -72,7 +72,7 @@ function execute() {
         };
     config[translationConfigKey("use_translation_memory")] = {
             title: "Sử dụng bộ nhớ dịch",
-            subtitle: "Áp dụng tên riêng, địa danh, thuật ngữ và quan hệ đã lưu cho truyện hiện tại",
+            subtitle: "Áp dụng tên riêng, địa danh, thuật ngữ và quan hệ đã lưu cho truyện hiện tại; dùng cho mọi cặp ngôn ngữ",
             default: "true",
             mode: "toggle"
         };
@@ -141,7 +141,8 @@ function initializeTranslationPrompts() {
             for (var index = 0; index < definitions.length; index++) {
                 var definition = definitions[index];
                 var stored = storedPrompts[definition.id];
-                if (stored === translationLegacyPrompt(definition.rule)) {
+                if (stored === translationLegacyPrompt(definition.rule) ||
+                    (definition.id === "tu-nhien" && stored === undefined)) {
                     rows.push({ key: definition.id, value: definition.rule });
                 }
             }

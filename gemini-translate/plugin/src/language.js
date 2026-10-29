@@ -1,6 +1,7 @@
 function execute() {
     return Response.success([
         { id: "zh-CN" },
+        { id: "zh-TW" },
         { id: "en" },
         { id: "vi" },
         { id: "ja" },

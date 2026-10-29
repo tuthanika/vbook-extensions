@@ -33,6 +33,7 @@ function execute() {
     }
 
     var memory = analysisLoadMemory(String(info.id));
+    var languages = translationRecalledLanguages(String(info.id));
     var analyzedBlocks = 0;
     var changedRows = 0;
 
@@ -48,7 +49,8 @@ function execute() {
                 block,
                 blockIndex,
                 blocks.length,
-                analysisBuildMemoryContext(memory, block)
+                analysisBuildMemoryContext(memory, block),
+                languages
             );
             if (result.error) {
                 return Response.error(
@@ -62,7 +64,9 @@ function execute() {
                 memory,
                 result.entities,
                 block,
-                chapter.position
+                chapter.position,
+                translationIsChineseSource(block, languages.from),
+                translationIsChineseLanguage(languages.to)
             );
             analyzedBlocks++;
         }
@@ -156,20 +160,24 @@ function analysisSplitContent(text, maxLength) {
     return blocks;
 }
 
-function analysisRequest(apiKeys, chapter, text, blockIndex, blockCount, memoryContext) {
-    var instruction = "Bạn là biên tập viên phân tích truyện Trung Quốc để xây dựng bộ nhớ dịch Trung-Việt bền vững. " +
+function analysisRequest(apiKeys, chapter, text, blockIndex, blockCount, memoryContext, languages) {
+    var chinese = translationIsChineseSource(text, languages.from);
+    var sourceName = chinese ? translationLanguageName("zh") : translationLanguageName(languages.from);
+    var targetName = translationLanguageName(languages.to);
+    var instruction = "Bạn là biên tập viên phân tích truyện để xây dựng bộ nhớ dịch bền vững từ " + sourceName +
+        " sang " + targetName + ". " +
         "Chỉ trích xuất thông tin có độ tin cậy cao từ đoạn được cung cấp; không dịch toàn chương và không suy đoán khi thiếu bằng chứng. " +
         "Tên/cách dịch đã có trong BỘ NHỚ HIỆN TẠI là chuẩn bắt buộc, không tự đổi. " +
         "Phân biệt nhân vật trùng họ, gộp biệt danh vào đúng nhân vật, và ghi quan hệ theo góc nhìn của nhân vật đang xét. " +
         "Xưng hô chỉ ghi khi lời thoại hoặc vai vế cho thấy rõ. " +
         "Trả về duy nhất một JSON hợp lệ, không Markdown, dạng: " +
-        '{"entities":[{"source":"tên/thuật ngữ tiếng Trung chính xác","target":"cách dịch tiếng Việt ổn định",' +
-        '"kind":"character|place|organization|term","aliases":["biệt danh tiếng Trung"],' +
+        '{"entities":[{"source":"tên/thuật ngữ đúng như nguyên văn","target":"cách dịch ổn định sang ngôn ngữ đích",' +
+        '"kind":"character|place|organization|term","aliases":["biệt danh đúng như nguyên văn"],' +
         '"gender":"male|female|unknown","role":"vai trò ngắn gọn",' +
-        '"relationships":[{"with":"tên tiếng Trung của người kia","type":"quan hệ",' +
+        '"relationships":[{"with":"tên nguyên văn của người kia","type":"quan hệ",' +
         '"addressTo":"nhân vật này gọi người kia","addressFrom":"người kia gọi nhân vật này"}],' +
         '"note":"ghi chú ngắn cần cho các chương sau"}]}. ' +
-        "source và aliases phải là chuỗi tiếng Trung xuất hiện nguyên văn trong đoạn hoặc đã có trong bộ nhớ. " +
+        "source và aliases phải là chuỗi xuất hiện nguyên văn trong đoạn hoặc đã có trong bộ nhớ; target viết bằng " + targetName + ". " +
         "Không lấy đại từ, từ thông thường, câu dài, dữ liệu mơ hồ; tối đa " + ANALYSIS_MAX_ENTITIES + " mục.";
 
     var userText = "CHƯƠNG: " + chapter.title + " (vị trí " + chapter.position +
@@ -312,9 +320,9 @@ function analysisBuildMemoryContext(memory, text) {
         if (!memory.hasOwnProperty(source)) continue;
         var data = memory[source] || {};
         var aliases = Array.isArray(data.aliases) ? data.aliases : [];
-        var matched = text.indexOf(source) >= 0;
+        var matched = translationTermInText(text, source);
         for (var aliasIndex = 0; !matched && aliasIndex < aliases.length; aliasIndex++) {
-            if (text.indexOf(String(aliases[aliasIndex])) >= 0) matched = true;
+            if (translationTermInText(text, String(aliases[aliasIndex]))) matched = true;
         }
         if (!matched) continue;
 
@@ -343,7 +351,7 @@ function analysisBuildMemoryContext(memory, text) {
     return lines.join("\n");
 }
 
-function analysisMergeEntities(bookId, memory, entities, text, position) {
+function analysisMergeEntities(bookId, memory, entities, text, position, chinese, chineseTarget) {
     if (!Array.isArray(entities) || entities.length === 0) return 0;
     var records = [];
     var touched = {};
@@ -353,11 +361,11 @@ function analysisMergeEntities(bookId, memory, entities, text, position) {
         if (!entity) continue;
         var source = analysisOneLine(entity.source);
         var target = analysisOneLine(entity.target);
-        if (!source || !target || !analysisContainsChinese(source)) continue;
-        if (analysisContainsChinese(target)) continue;
+        if (!source || !target) continue;
+        if (analysisContainsChinese(target) && !chineseTarget) continue;
 
         var canonical = analysisFindCanonical(memory, source);
-        if (!canonical && text.indexOf(source) < 0) continue;
+        if (!canonical && !translationIsMemoryTerm(source, target, text, chinese)) continue;
         if (!canonical) canonical = source;
         if (touched[canonical]) continue;
 
@@ -366,7 +374,7 @@ function analysisMergeEntities(bookId, memory, entities, text, position) {
         merged.target = analysisOneLine(old.target) || target;
         merged.kind = analysisNormalizeKind(old.kind || entity.kind);
         merged.note = analysisOneLine(old.note || "");
-        merged.aliases = analysisMergeAliases(old.aliases, entity.aliases, canonical, text);
+        merged.aliases = analysisMergeAliases(old.aliases, entity.aliases, canonical, text, chinese);
         if (source !== canonical && merged.aliases.indexOf(source) < 0) merged.aliases.push(source);
         merged.gender = analysisMergeSingle(old.gender, entity.gender, "unknown");
         merged.role = analysisMergeText(old.role, entity.role, 400);
@@ -400,14 +408,15 @@ function analysisFindCanonical(memory, source) {
     return "";
 }
 
-function analysisMergeAliases(oldAliases, newAliases, source, text) {
+function analysisMergeAliases(oldAliases, newAliases, source, text, chinese) {
     var result = [];
     var lists = [Array.isArray(oldAliases) ? oldAliases : [], Array.isArray(newAliases) ? newAliases : []];
     for (var listIndex = 0; listIndex < lists.length; listIndex++) {
         for (var index = 0; index < lists[listIndex].length; index++) {
             var alias = analysisOneLine(lists[listIndex][index]);
-            if (!alias || alias === source || !analysisContainsChinese(alias)) continue;
-            if (listIndex === 1 && text.indexOf(alias) < 0) continue;
+            if (!alias || alias === source) continue;
+            if (chinese && !analysisContainsChinese(alias)) continue;
+            if (listIndex === 1 && !translationTermInText(text, alias)) continue;
             if (result.indexOf(alias) < 0) result.push(alias);
             if (result.length >= 20) return result;
         }
