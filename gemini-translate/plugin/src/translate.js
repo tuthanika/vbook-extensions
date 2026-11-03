@@ -37,6 +37,10 @@ function execute(text, from, to, source, model, style) {
         // Baidu does not cover every listed language; use Gemini instead.
     }
 
+    // Gemini can hand "auto-detected" text back untranslated, while the same text with
+    // an explicit source translates fine; name the detected language when it is certain.
+    if (from === "auto") from = translationDetectLanguage(text) || "auto";
+
     var temperature = readNumber("temperature", 0.2, 0, 2);
     var maxOutputTokens = Math.round(readNumber("max_output_tokens", 16384, 256, 65536));
     var customInstruction = readBookCustomInstruction();
@@ -111,6 +115,7 @@ function callGemini(endpoint, apiKeys, systemInstruction, text, temperature, max
         }
     };
     applyGeminiSafetySettings(request);
+    applyGeminiThinking(request, endpoint);
     var requestBody = JSON.stringify(request);
 
     var lastError = "";
@@ -136,6 +141,15 @@ function callGemini(endpoint, apiKeys, systemInstruction, text, temperature, max
             data = JSON.parse(response.text());
         } catch (e2) {
             return { text: "", keyIndex: keyIndex, error: "Gemini trả về dữ liệu không hợp lệ" };
+        }
+
+        // A cut-off chapter would be cached as a finished translation.
+        if (blockedReason(data) === "MAX_TOKENS") {
+            return {
+                text: "",
+                keyIndex: keyIndex,
+                error: "Bản dịch bị cắt vì vượt số token đầu ra tối đa. Hãy tăng giới hạn này hoặc giảm mức suy nghĩ trong cài đặt."
+            };
         }
 
         var translated = extractText(data);
@@ -335,7 +349,7 @@ function addMemoryLine(context, source, target, kind, note) {
     if (!source || !target || context.included[source]) return;
     // A Chinese "translation" tells the model to keep the source text and snowballs into
     // fully untranslated chapters; ignore such entries, including ones already stored.
-    if (containsChinese(target) && !translationIsChineseLanguage(context.to)) return;
+    if (containsChinese(target) && !translationWritesHan(context.to)) return;
     if (context.lines.length >= MAX_MEMORY_MATCHES) return;
 
     context.included[source] = true;
@@ -438,7 +452,7 @@ function persistTranslationMemory(context, input, items) {
         if (!source || !target || context.existing[source]) continue;
         if (source.length > 80 || target.length > 160) continue;
         if (!translationIsMemoryTerm(source, target, input, context.chinese)) continue;
-        if (containsChinese(target) && !translationIsChineseLanguage(context.to)) continue;
+        if (containsChinese(target) && !translationWritesHan(context.to)) continue;
 
         var kind = normalizeMemoryKind(item.kind);
         var note = oneLine(String(item.note || ""));
@@ -476,6 +490,7 @@ function extractTranslationMemory(endpoint, apiKey, original, translated, from, 
         }
     };
     applyGeminiSafetySettings(request);
+    applyGeminiThinking(request, endpoint);
 
     try {
         var response = fetch(endpoint, {
@@ -506,7 +521,7 @@ function normalizeMemoryKind(value) {
 
 function shouldRepairChinese(translated, original, from, to) {
     if (!readBoolean("retry_untranslated_chinese", true)) return false;
-    if (translationIsChineseLanguage(to) || !isChineseSource(original, from)) return false;
+    if (translationWritesHan(to) || !isChineseSource(original, from)) return false;
     var count = countChinese(translated);
     if (count === 0) return false;
     return true;
@@ -527,7 +542,7 @@ function repairRemainingChinese(endpoint, apiKey, draft, to, memoryPrompt, maxOu
             fragment: fragment,
             context: chineseFragmentContext(previous, fragment)
         });
-        if (items.length > MAX_CHINESE_REPAIR_FRAGMENTS) return previous;
+        if (items.length >= MAX_CHINESE_REPAIR_FRAGMENTS) break;
     }
 
     if (items.length === 0) return previous;
@@ -542,15 +557,32 @@ function repairRemainingChinese(endpoint, apiKey, draft, to, memoryPrompt, maxOu
     );
     if (!replacements) return previous;
 
+    // Longest first so a short fragment never splits a longer one that contains it; a
+    // fragment the model failed on stays as it was instead of discarding every fix.
+    items.sort(function (a, b) { return b.fragment.length - a.fragment.length; });
     var repaired = previous;
     for (var itemIndex = 0; itemIndex < items.length; itemIndex++) {
         var item = items[itemIndex];
         var replacement = replacements[item.id];
-        if (!replacement || countChinese(replacement) > 0) return previous;
-        repaired = repaired.split(item.fragment).join(replacement);
+        if (!replacement || countChinese(replacement) > 0) continue;
+        repaired = replaceChineseFragment(repaired, item.fragment, replacement);
     }
+    return repaired;
+}
 
-    return countChinese(repaired) === 0 ? repaired : previous;
+// Chinese needs no spaces, so "Hoàng玉" must become "Hoàng Ngọc", not "HoàngNgọc".
+function replaceChineseFragment(text, fragment, replacement) {
+    var parts = text.split(fragment);
+    var result = parts[0];
+    for (var i = 1; i < parts.length; i++) {
+        var before = result.charAt(result.length - 1);
+        var after = parts[i].charAt(0);
+        var value = replacement;
+        if (/[0-9A-Za-z\u00c0-\u024f\u1e00-\u1eff]/.test(before)) value = " " + value;
+        if (/[0-9A-Za-z\u00c0-\u024f\u1e00-\u1eff]/.test(after)) value += " ";
+        result += value + parts[i];
+    }
+    return result;
 }
 
 function chineseFragmentContext(text, fragment) {
@@ -582,6 +614,7 @@ function translateChineseFragmentsOnce(endpoint, apiKey, items, to, memoryPrompt
         }
     };
     applyGeminiSafetySettings(request);
+    applyGeminiThinking(request, endpoint);
     var body = JSON.stringify(request);
 
     try {
@@ -694,6 +727,19 @@ function readNumber(key, fallback, min, max) {
     return value;
 }
 
+var THINKING_LEVELS = { minimal: true, low: true, medium: true, high: true };
+
+// Gemini 3+ thinks at length by default: Gemini 3.6 Flash spent ~9,600 thinking tokens
+// and 74 s on a 4,800-character chapter, 30 s at "low". Older models reject thinkingLevel.
+function applyGeminiThinking(request, endpoint) {
+    var level = readConfig("thinking_level", "low");
+    if (!THINKING_LEVELS[level]) return request;
+    if (!/\/models\/gemini-[3-9]/.test(String(endpoint || ""))) return request;
+    request.generationConfig = request.generationConfig || {};
+    request.generationConfig.thinkingConfig = { thinkingLevel: level };
+    return request;
+}
+
 function normalizeModel(model) {
     var selected = String(model || "").trim();
     var models = {
@@ -752,6 +798,18 @@ function buildInstruction(text, from, to, source, style, customInstruction, memo
         if (values.hasOwnProperty(key)) {
             template = template.split("{" + key + "}").join(values[key]);
         }
+    }
+    // Appended outside the editable template so customized system prompts get it too.
+    if (translationSourceDiffers(text, from, to)) {
+        template += "\n\nBẮT BUỘC VỀ NGÔN NGỮ: mọi câu trong bản dịch phải viết bằng " + targetLanguage +
+            ", kể cả tiêu đề, lời tác giả, lời nhắn, quảng cáo, ghi chú và thông báo hệ thống. ";
+        if (chineseSource && !translationWritesHan(to)) {
+            template += "Không để sót bất kỳ chữ Hán nào; tên riêng và thuật ngữ chưa có trong bộ nhớ thì " +
+                (to === "vi" ? "phiên âm Hán Việt. " : "phiên âm theo quy ước phổ biến của " + targetLanguage + ". ");
+        } else {
+            template += "Không để sót câu hoặc cụm từ nào bằng ngôn ngữ gốc. ";
+        }
+        template += "Không chèn nguyên văn hoặc chú thích trong ngoặc.";
     }
     return String(template).replace(/\n{3,}/g, "\n\n").trim();
 }

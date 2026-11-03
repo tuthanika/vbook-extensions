@@ -355,6 +355,22 @@ function translationLooksVietnamese(text) {
     return (marks ? marks.length : 0) >= letters * 0.03;
 }
 
+var TRANSLATION_SCRIPT_LANGUAGES = { han: "zh", kana: "ja", hangul: "ko", thai: "th" };
+
+// Language code for an auto-detected source when its script names one language
+// unambiguously; "" otherwise (e.g. Latin or Cyrillic text).
+function translationDetectLanguage(text) {
+    var script = translationDominantScript(text);
+    if (script === "latin") return translationLooksVietnamese(text) ? "vi" : "";
+    return TRANSLATION_SCRIPT_LANGUAGES[script] || "";
+}
+
+// Chinese and Japanese output legitimately contains Han characters (kanji).
+function translationWritesHan(code) {
+    var script = translationLanguageScript(code);
+    return script === "han" || script === "kana";
+}
+
 function translationIsChineseLanguage(code) {
     var value = String(code || "").toLowerCase();
     return value === "zh" || value.indexOf("zh-") === 0;
@@ -405,6 +421,10 @@ function translationIsUntranslated(translated, original, from, to) {
     if (script && script !== "latin" && script !== translationLanguageScript(to)) {
         var originalCount = translationCountScript(input, script);
         if (originalCount < 10) return false;
+        // Japanese keeps kanji, so a Chinese source counts as untranslated only without kana.
+        if (script === "han" && translationLanguageScript(to) === "kana") {
+            return translationCountScript(output, "kana") < Math.max(5, originalCount * 0.05);
+        }
         var remaining = translationCountScript(output, script);
         var ratio = script === "han" ? 0.2 : 0.5;
         return remaining >= 10 && remaining >= originalCount * ratio;

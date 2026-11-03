@@ -22,6 +22,12 @@ function execute() {
             mode: "input",
             format: "number"
         };
+    config[translationConfigKey("thinking_level")] = {
+            title: "Mức suy nghĩ (Gemini 3 trở lên): low nhanh, high kỹ nhưng rất chậm, default theo model",
+            default: "low",
+            values: ["low", "minimal", "medium", "high", "default"],
+            mode: "select"
+        };
     config[translationConfigKey("enable_safety_filter")] = {
             title: "Bật bộ lọc an toàn Gemini",
             subtitle: "Mặc định tắt; khi tắt sẽ gửi BLOCK_NONE cho harassment, hate speech, sexually explicit và dangerous content",
