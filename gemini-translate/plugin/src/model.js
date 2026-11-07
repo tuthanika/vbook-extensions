@@ -45,7 +45,7 @@ function execute() {
         {
             id: "gemini-2.5-flash",
             name: "Gemini 2.5 Flash",
-            description: "Chỉ dùng được với tài khoản còn quyền truy cập Gemini 2.5",
+            description: "Ngừng 1/12/2026, tự chuyển sang 3.5 Flash-Lite",
             isNetworkRequired: true
         },
         {
@@ -57,7 +57,7 @@ function execute() {
         {
             id: "gemini-2.5-pro",
             name: "Gemini 2.5 Pro",
-            description: "Chỉ dùng được với tài khoản còn quyền truy cập Gemini 2.5",
+            description: "Ngừng 1/12/2026, tự chuyển sang 3.8 Flash",
             isNetworkRequired: true
         }
     ]);
