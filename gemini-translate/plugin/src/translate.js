@@ -120,7 +120,7 @@ function callGemini(endpoint, apiKeys, systemInstruction, text, temperature, max
 
     var lastError = "";
     for (var keyIndex = 0; keyIndex < apiKeys.length; keyIndex++) {
-        var response = fetch(endpoint, {
+        var response = fetchGemini(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -493,7 +493,7 @@ function extractTranslationMemory(endpoint, apiKey, original, translated, from, 
     applyGeminiThinking(request, endpoint);
 
     try {
-        var response = fetch(endpoint, {
+        var response = fetchGemini(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -618,7 +618,7 @@ function translateChineseFragmentsOnce(endpoint, apiKey, items, to, memoryPrompt
     var body = JSON.stringify(request);
 
     try {
-        var response = fetch(endpoint, {
+        var response = fetchGemini(endpoint, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -707,6 +707,18 @@ function readApiKeys() {
     return keys;
 }
 
+// Gemma 4 on the Gemini API answers 500/503 on a good share of requests that go through
+// on a second try.
+var SERVER_ERROR_RETRIES = 2;
+
+function fetchGemini(endpoint, options) {
+    var response = fetch(endpoint, options);
+    for (var attempt = 0; attempt < SERVER_ERROR_RETRIES && (response.status === 500 || response.status === 503); attempt++) {
+        response = fetch(endpoint, options);
+    }
+    return response;
+}
+
 function readApiError(response) {
     var errorText = response.text();
     var errorData;
@@ -731,10 +743,15 @@ var THINKING_LEVELS = { minimal: true, low: true, medium: true, high: true };
 
 // Gemini 3+ thinks at length by default: Gemini 3.6 Flash spent ~9,600 thinking tokens
 // and 74 s on a 4,800-character chapter, 30 s at "low". Older models reject thinkingLevel.
+// Gemma 4 only switches thinking on ("high") or off ("minimal").
 function applyGeminiThinking(request, endpoint) {
     var level = readConfig("thinking_level", "low");
     if (!THINKING_LEVELS[level]) return request;
-    if (!/\/models\/gemini-[3-9]/.test(String(endpoint || ""))) return request;
+    if (/\/models\/gemma-/.test(String(endpoint || ""))) {
+        level = level === "high" ? "high" : "minimal";
+    } else if (!/\/models\/gemini-[3-9]/.test(String(endpoint || ""))) {
+        return request;
+    }
     request.generationConfig = request.generationConfig || {};
     request.generationConfig.thinkingConfig = { thinkingLevel: level };
     return request;
@@ -752,7 +769,9 @@ function normalizeModel(model) {
         "gemini-3.1-flash-lite": true,
         "gemini-2.5-flash": true,
         "gemini-2.5-flash-lite": true,
-        "gemini-2.5-pro": true
+        "gemini-2.5-pro": true,
+        "gemma-4-31b-it": true,
+        "gemma-4-26b-a4b-it": true
     };
     // Shut-down models keep working for saved settings via Google's own replacements.
     var retired = {

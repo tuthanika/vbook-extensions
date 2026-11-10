@@ -59,6 +59,18 @@ function execute() {
             name: "Gemini 2.5 Pro",
             description: "Ngừng 1/12/2026, tự chuyển sang 3.8 Flash",
             isNetworkRequired: true
+        },
+        {
+            id: "gemma-4-31b-it",
+            name: "Gemma 4 31B",
+            description: "Model mở của Google; suy nghĩ chỉ bật (high) hoặc tắt",
+            isNetworkRequired: true
+        },
+        {
+            id: "gemma-4-26b-a4b-it",
+            name: "Gemma 4 26B A4B",
+            description: "Gemma 4 MoE, nhanh hơn 31B; suy nghĩ chỉ bật (high) hoặc tắt",
+            isNetworkRequired: true
         }
     ]);
 }

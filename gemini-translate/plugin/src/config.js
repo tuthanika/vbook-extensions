@@ -23,7 +23,7 @@ function execute() {
             format: "number"
         };
     config[translationConfigKey("thinking_level")] = {
-            title: "Mức suy nghĩ (Gemini 3 trở lên): low nhanh, high kỹ nhưng rất chậm, default theo model",
+            title: "Mức suy nghĩ (Gemini 3 trở lên): low nhanh, high kỹ nhưng rất chậm, default theo model; Gemma 4 chỉ high là bật",
             default: "low",
             values: ["low", "minimal", "medium", "high", "default"],
             mode: "select"

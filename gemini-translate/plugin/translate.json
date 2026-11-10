@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "author": "tuthanika",
+    "description": ""
+  },
+  "data": [ 
+    {
+      "name": "Gemini Mod",
+      "author": "vBook",
+      "version": 16,
+      "source": "https://ai.google.dev",
+      "path": "https://raw.githubusercontent.com/tuthanika/vbook-extensions/dev-gemini/gemini-translate/plugin/plugin.zip",
+      "icon": "https://raw.githubusercontent.com/tuthanika/vbook-extensions/dev-gemini/gemini-translate/icon.png",
+      "description": "Dịch nội dung bằng Google Gemini API",
+      "type": "translate"
+    }
+  ]
+}
