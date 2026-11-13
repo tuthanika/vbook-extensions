@@ -743,12 +743,14 @@ var THINKING_LEVELS = { minimal: true, low: true, medium: true, high: true };
 
 // Gemini 3+ thinks at length by default: Gemini 3.6 Flash spent ~9,600 thinking tokens
 // and 74 s on a 4,800-character chapter, 30 s at "low". Older models reject thinkingLevel.
-// Gemma 4 only switches thinking on ("high") or off ("minimal").
+// Gemma 4 only switches thinking on ("high") or off ("minimal"); Gemini 4 rejects "minimal".
 function applyGeminiThinking(request, endpoint) {
     var level = readConfig("thinking_level", "low");
     if (!THINKING_LEVELS[level]) return request;
     if (/\/models\/gemma-/.test(String(endpoint || ""))) {
         level = level === "high" ? "high" : "minimal";
+    } else if (/\/models\/gemini-4-/.test(String(endpoint || ""))) {
+        if (level === "minimal") level = "low";
     } else if (!/\/models\/gemini-[3-9]/.test(String(endpoint || ""))) {
         return request;
     }
@@ -763,7 +765,9 @@ function normalizeModel(model) {
         "gemini-3.5-flash-lite": true,
         "gemini-3.6-flash": true,
         "gemini-3.8-flash": true,
+        "gemini-4-hydrogen": true,
         "gemini-4-argon": true,
+        "gemini-4-carbon": true,
         "gemini-3-flash-preview": true,
         "gemini-3.1-pro-preview": true,
         "gemini-3.1-flash-lite": true,

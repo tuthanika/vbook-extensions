@@ -6,8 +6,8 @@
   "data": [ 
     {
       "name": "Gemini Mod",
-      "author": "vBook",
-      "version": 16,
+      "author": "tuthanika",
+      "version": 17,
       "source": "https://ai.google.dev",
       "path": "https://raw.githubusercontent.com/tuthanika/vbook-extensions/dev-gemini/gemini-translate/plugin/plugin.zip",
       "icon": "https://raw.githubusercontent.com/tuthanika/vbook-extensions/dev-gemini/gemini-translate/icon.png",

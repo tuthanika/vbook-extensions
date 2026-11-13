@@ -19,9 +19,21 @@ function execute() {
             isNetworkRequired: true
         },
         {
+            id: "gemini-4-hydrogen",
+            name: "Gemini 4 Hydrogen",
+            description: "Gemini 4 nhanh và rẻ nhất; có free tier",
+            isNetworkRequired: true
+        },
+        {
             id: "gemini-4-argon",
             name: "Gemini 4 Argon",
-            description: "Model mạnh nhất; chậm và đắt nhất",
+            description: "Gần bằng Carbon nhưng nhanh hơn; cần tài khoản trả phí",
+            isNetworkRequired: true
+        },
+        {
+            id: "gemini-4-carbon",
+            name: "Gemini 4 Carbon",
+            description: "Model mạnh nhất; chậm, đắt và cần tài khoản trả phí",
             isNetworkRequired: true
         },
         {
