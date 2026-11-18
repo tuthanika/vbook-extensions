@@ -4,7 +4,12 @@ function execute() {
             name: "Khôi phục cài đặt gốc",
             description: "Đặt lại toàn bộ cấu hình Gemini Translate và các prompt đã sửa về mặc định. Bộ nhớ dịch theo truyện không bị xóa.",
             script: "reset-defaults.js"
-        }
+        },
+		show_log: { 
+		    name: "Xem nhật ký dịch", 
+			description: "Hiện 8 dòng log gần nhất", 
+			script: "show-log.js" 
+	    }
     };
     try {
         var book = localBook.getInfo();

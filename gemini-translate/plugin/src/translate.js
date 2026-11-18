@@ -45,11 +45,8 @@ function execute(text, from, to, source, model, style) {
     var maxOutputTokens = Math.round(readNumber("max_output_tokens", 16384, 256, 65536));
     var customInstruction = readBookCustomInstruction();
     var bypassPrompt = readBookBypassPromptText();
-	if (readBoolean("debug_bypass", true)) {
-    return Response.error("DEBUG bypassLen=" + bypassPrompt.length +
-        " source=" + source + " textLen=" + text.length +
-        " đầu=" + bypassPrompt.substring(0, 40));
-}
+	dbgLog("src=" + source + " from=" + from + " to=" + to + " style=" + style +
+       " model=" + model + " bypass=" + bypassPrompt.length + " textLen=" + text.length);
     var endpoint = GEMINI_API_BASE + encodeURIComponent(model) + ":generateContent";
     var memoryContext = loadTranslationMemory(text, from, to, source);
     var learnMemory = memoryContext.enabled && readBoolean("auto_translation_memory", true);
@@ -156,6 +153,10 @@ function callGemini(endpoint, apiKeys, systemInstruction, text, temperature, max
         }
 
         var translated = extractText(data);
+        dbgLog("finish=" + blockedReason(data) +
+               " outLen=" + (translated ? translated.length : 0) +
+               " han=" + countChinese(translated) +
+               " bypass=" + (bypassPrompt ? bypassPrompt.length : 0));
         if (!translated) {
             var reason = blockedReason(data);
             return {
@@ -892,4 +893,13 @@ function stripCodeFence(text) {
     var value = String(text).trim();
     var match = value.match(/^```[^\n]*\n([\s\S]*?)\n```$/);
     return match ? match[1] : value;
+}
+
+function dbgLog(msg) {
+    try {
+        var arr = JSON.parse(localStorage.getItem("dbg_log") || "[]");
+        arr.push(String(Date.now()) + " " + msg);
+        if (arr.length > 30) arr = arr.slice(arr.length - 30);
+        localStorage.setItem("dbg_log", JSON.stringify(arr));
+    } catch (e) {}
 }
