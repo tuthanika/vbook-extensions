@@ -2,7 +2,7 @@
   "metadata": {
     "name": "Gemini SuperMod",
     "author": "tuthanika",
-    "version": 22,
+    "version": 23,
     "source": "https://ai.google.dev",
     "description": "Dịch nội dung bằng Google Gemini API",
     "locale": "global",

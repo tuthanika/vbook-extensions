@@ -360,8 +360,14 @@ function readBookBypassPrompt(bookId) {
     try {
         var stored = localDatabase.get(BYPASS_PROMPT_SCOPE, BYPASS_PROMPT_TABLE, selectedId);
         if (stored === null || stored === undefined) return "";
-        var data = JSON.parse(String(stored));
-        return data && data.value ? String(data.value).trim() : "";
+        var text = String(stored).trim();
+        try {
+            var data = JSON.parse(text);
+            // Dạng chuẩn {"name":..., "value":"..."}
+            if (data && typeof data.value === "string") return data.value.trim();
+        } catch (parseErr) {}
+        // Dạng khác (JSON tự do hoặc văn bản thuần): dùng nguyên chuỗi
+        return text;
     } catch (e2) {}
     return "";
 }
