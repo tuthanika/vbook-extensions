@@ -346,6 +346,22 @@ function initializeBypassPrompts() {
     } catch (e) {}
 }
 
+function loadBypassPromptText(id) {
+    if (!id || id === "none") return "";
+    try {
+        var stored = localDatabase.get(BYPASS_PROMPT_SCOPE, BYPASS_PROMPT_TABLE, id);
+        if (stored !== null && stored !== undefined) {
+            var data = JSON.parse(String(stored));
+            if (data && data.value) return String(data.value).trim();
+        }
+    } catch (e) {}
+    var defaults = translationDefaultBypassPrompts();
+    for (var i = 0; i < defaults.length; i++) {
+        if (defaults[i].id === id) return defaults[i].value;
+    }
+    return "";
+}
+
 // Đọc nội dung bypass prompt đang chọn cho truyện hiện tại.
 // Trả về chuỗi prefix hoặc "" nếu không chọn.
 function readBookBypassPrompt(bookId) {
@@ -357,13 +373,7 @@ function readBookBypassPrompt(bookId) {
         selectedId = raw === null || raw === undefined ? "" : String(raw).trim();
     } catch (e) {}
     if (!selectedId || selectedId === "none") return "";
-    try {
-        var stored = localDatabase.get(BYPASS_PROMPT_SCOPE, BYPASS_PROMPT_TABLE, selectedId);
-        if (stored === null || stored === undefined) return "";
-        var data = JSON.parse(String(stored));
-        return data && data.value ? String(data.value).trim() : "";
-    } catch (e2) {}
-    return "";
+    return loadBypassPromptText(selectedId);
 }
 
 function translationLegacyPrompt(styleRule) {

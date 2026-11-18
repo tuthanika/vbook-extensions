@@ -7,7 +7,7 @@
     {
       "name": "Gemini SuperMod",
       "author": "tuthanika",
-      "version": 19,
+      "version": 20,
       "source": "https://ai.google.dev",
       "path": "https://raw.githubusercontent.com/tuthanika/vbook-extensions/dev-new/gemini-translate/plugin/plugin.zip",
       "icon": "https://raw.githubusercontent.com/tuthanika/vbook-extensions/dev-new/gemini-translate/icon.png",
