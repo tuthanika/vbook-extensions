@@ -45,6 +45,11 @@ function execute(text, from, to, source, model, style) {
     var maxOutputTokens = Math.round(readNumber("max_output_tokens", 16384, 256, 65536));
     var customInstruction = readBookCustomInstruction();
     var bypassPrompt = readBookBypassPromptText();
+	if (readBoolean("debug_bypass", true)) {
+    return Response.error("DEBUG bypassLen=" + bypassPrompt.length +
+        " source=" + source + " textLen=" + text.length +
+        " đầu=" + bypassPrompt.substring(0, 40));
+}
     var endpoint = GEMINI_API_BASE + encodeURIComponent(model) + ":generateContent";
     var memoryContext = loadTranslationMemory(text, from, to, source);
     var learnMemory = memoryContext.enabled && readBoolean("auto_translation_memory", true);
