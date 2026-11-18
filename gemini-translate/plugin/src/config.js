@@ -76,6 +76,11 @@ function execute() {
             subtitle: "Dùng chung cho mọi truyện; khi thêm prompt mới hãy để trống bookId, nhập key là ID style và value là nội dung prompt",
             mode: "database"
         };
+    config.bypass_prompts = {
+            title: "Thư viện prompt lách bộ lọc",
+            subtitle: "Danh sách preset; key là ID, value là JSON {\"name\":\"Tên hiển thị\",\"value\":\"Nội dung prefix\"}; có thể thêm mới, sửa hoặc xoá",
+            mode: "database"
+        };
     config[translationConfigKey("use_translation_memory")] = {
             title: "Sử dụng bộ nhớ dịch",
             subtitle: "Áp dụng tên riêng, địa danh, thuật ngữ và quan hệ đã lưu cho truyện hiện tại; dùng cho mọi cặp ngôn ngữ",
@@ -97,6 +102,7 @@ function execute() {
         };
 
     initializeTranslationPrompts();
+    initializeBypassPrompts();
 
     var bookInfo = null;
     try {
@@ -104,7 +110,8 @@ function execute() {
     } catch (e) {}
 
     if (bookInfo && bookInfo.id) {
-        var bookPromptKey = translationConfigKey(translationBookPromptConfigKey(String(bookInfo.id)));
+        var bookId = String(bookInfo.id);
+        var bookPromptKey = translationConfigKey(translationBookPromptConfigKey(bookId));
         config[bookPromptKey] = {
             title: "Yêu cầu dịch riêng cho truyện",
             subtitle: "Chỉ áp dụng cho truyện hiện tại, ví dụ: giữ cách xưng hô theo phong cách kiếm hiệp",
@@ -112,6 +119,36 @@ function execute() {
             mode: "input",
             format: "text"
         };
+
+        // --- Prompt lách: chọn preset hoặc tắt ---
+        var bypassValues = ["none"];
+        var bypassTitles = ["Tắt (không dùng prompt lách)"];
+        try {
+            var bypassTotal = localDatabase.count(BYPASS_PROMPT_SCOPE, BYPASS_PROMPT_TABLE);
+            var bypassRows = localDatabase.list(BYPASS_PROMPT_SCOPE, BYPASS_PROMPT_TABLE, 0, Math.min(bypassTotal, 100));
+            for (var bi = 0; bypassRows && bi < bypassRows.length; bi++) {
+                var bKey = String(bypassRows[bi].key || "").trim();
+                if (!bKey) continue;
+                var bLabel = bKey;
+                try {
+                    var bData = JSON.parse(String(bypassRows[bi].value || "{}"));
+                    if (bData && bData.name) bLabel = String(bData.name);
+                } catch (bErr) {}
+                bypassValues.push(bKey);
+                bypassTitles.push(bLabel);
+            }
+        } catch (bypassErr) {}
+
+        var bypassSelectKey = translationConfigKey(translationBypassPromptConfigKey(bookId));
+        config[bypassSelectKey] = {
+            title: "Prompt lách bộ lọc",
+            subtitle: "Chọn preset phù hợp thể loại truyện để tránh bị block khi nội dung nhạy cảm; quản lý preset trong 'Thư viện prompt lách bộ lọc'",
+            default: "none",
+            values: bypassValues,
+            titles: bypassTitles,
+            mode: "select"
+        };
+
         config.translation_memory = {
             title: "Bộ nhớ dịch theo truyện",
             subtitle: "Tên riêng, địa danh, thuật ngữ và quan hệ do Gemini ghi nhớ; có thể thêm, sửa hoặc xóa thủ công",
